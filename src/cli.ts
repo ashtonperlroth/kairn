@@ -3,6 +3,7 @@ import { initCommand } from "./commands/init.js";
 import { describeCommand } from "./commands/describe.js";
 import { listCommand } from "./commands/list.js";
 import { activateCommand } from "./commands/activate.js";
+import { updateRegistryCommand } from "./commands/update-registry.js";
 
 const program = new Command();
 
@@ -17,5 +18,6 @@ program.addCommand(initCommand);
 program.addCommand(describeCommand);
 program.addCommand(listCommand);
 program.addCommand(activateCommand);
+program.addCommand(updateRegistryCommand);
 
 program.parse();

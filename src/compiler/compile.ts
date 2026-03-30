@@ -40,47 +40,118 @@ function buildUserMessage(intent: string, registry: RegistryTool[]): string {
 
 function parseSpecResponse(text: string): Omit<EnvironmentSpec, "id" | "intent" | "created_at"> {
   let cleaned = text.trim();
+  // Strip markdown code fences
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
   }
-  return JSON.parse(cleaned);
+  // Try to extract JSON if there's surrounding text
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(
+      "LLM response did not contain valid JSON. Try again or use a different model."
+    );
+  }
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    throw new Error(
+      `Failed to parse LLM response as JSON: ${err instanceof Error ? err.message : String(err)}\n` +
+      `Response started with: ${cleaned.slice(0, 200)}...`
+    );
+  }
+}
+
+function classifyError(err: unknown, provider: string): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const status = (err as { status?: number })?.status;
+  const code = (err as { code?: string })?.code;
+
+  // Network errors
+  if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "ETIMEDOUT") {
+    return `Network error: could not reach ${provider} API. Check your internet connection.`;
+  }
+
+  // Auth errors
+  if (status === 401 || msg.includes("invalid") && msg.includes("key")) {
+    return `Invalid API key for ${provider}. Run \`kairn init\` to reconfigure.`;
+  }
+  if (status === 403) {
+    return `Access denied by ${provider}. Your API key may lack permissions for this model.`;
+  }
+
+  // Rate limiting
+  if (status === 429 || msg.includes("rate limit") || msg.includes("quota")) {
+    return `Rate limited by ${provider}. Wait a moment and try again, or switch to a cheaper model with \`kairn init\`.`;
+  }
+
+  // Model errors
+  if (status === 404 || msg.includes("not found") || msg.includes("does not exist")) {
+    return `Model not found on ${provider}. Run \`kairn init\` to select a valid model.`;
+  }
+
+  // Overloaded
+  if (status === 529 || status === 503 || msg.includes("overloaded")) {
+    return `${provider} is temporarily overloaded. Try again in a few seconds.`;
+  }
+
+  // Token/context limit
+  if (msg.includes("token") && (msg.includes("limit") || msg.includes("exceed"))) {
+    return `Request too large for the selected model. Try a shorter workflow description.`;
+  }
+
+  // Billing
+  if (msg.includes("billing") || msg.includes("payment") || msg.includes("insufficient")) {
+    return `Billing issue with your ${provider} account. Check your account dashboard.`;
+  }
+
+  // Fallback
+  return `${provider} API error: ${msg}`;
 }
 
 async function callLLM(config: KairnConfig, userMessage: string): Promise<string> {
   if (config.provider === "anthropic") {
     const client = new Anthropic({ apiKey: config.api_key });
-    const response = await client.messages.create({
-      model: config.model,
-      max_tokens: 8192,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage }],
-    });
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      throw new Error("No text response from compiler LLM");
+    try {
+      const response = await client.messages.create({
+        model: config.model,
+        max_tokens: 8192,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userMessage }],
+      });
+      const textBlock = response.content.find((block) => block.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        throw new Error("No text response from compiler LLM");
+      }
+      return textBlock.text;
+    } catch (err) {
+      throw new Error(classifyError(err, "Anthropic"));
     }
-    return textBlock.text;
   } else if (config.provider === "openai" || config.provider === "google") {
+    const providerName = config.provider === "google" ? "Google" : "OpenAI";
     const clientOptions: { apiKey: string; baseURL?: string } = { apiKey: config.api_key };
     if (config.provider === "google") {
       clientOptions.baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/";
     }
     const client = new OpenAI(clientOptions);
-    const response = await client.chat.completions.create({
-      model: config.model,
-      max_tokens: 8192,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-    });
-    const text = response.choices[0]?.message?.content;
-    if (!text) {
-      throw new Error("No text response from compiler LLM");
+    try {
+      const response = await client.chat.completions.create({
+        model: config.model,
+        max_tokens: 8192,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userMessage },
+        ],
+      });
+      const text = response.choices[0]?.message?.content;
+      if (!text) {
+        throw new Error("No text response from compiler LLM");
+      }
+      return text;
+    } catch (err) {
+      throw new Error(classifyError(err, providerName));
     }
-    return text;
   }
-  throw new Error(`Unsupported provider: ${config.provider}`);
+  throw new Error(`Unsupported provider: ${config.provider}. Run \`kairn init\` to reconfigure.`);
 }
 
 export async function compile(
