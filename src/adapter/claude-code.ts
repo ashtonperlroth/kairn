@@ -1,0 +1,114 @@
+import fs from "fs/promises";
+import path from "path";
+import type { EnvironmentSpec } from "../types.js";
+
+async function writeFile(filePath: string, content: string): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, content, "utf-8");
+}
+
+export async function writeEnvironment(
+  spec: EnvironmentSpec,
+  targetDir: string
+): Promise<string[]> {
+  const claudeDir = path.join(targetDir, ".claude");
+  const written: string[] = [];
+
+  // 1. CLAUDE.md
+  if (spec.harness.claude_md) {
+    const p = path.join(claudeDir, "CLAUDE.md");
+    await writeFile(p, spec.harness.claude_md);
+    written.push(".claude/CLAUDE.md");
+  }
+
+  // 2. settings.json
+  if (spec.harness.settings && Object.keys(spec.harness.settings).length > 0) {
+    const p = path.join(claudeDir, "settings.json");
+    await writeFile(p, JSON.stringify(spec.harness.settings, null, 2));
+    written.push(".claude/settings.json");
+  }
+
+  // 3. .mcp.json (project-scoped, goes in project root)
+  if (
+    spec.harness.mcp_config &&
+    Object.keys(spec.harness.mcp_config).length > 0
+  ) {
+    const p = path.join(targetDir, ".mcp.json");
+    const mcpContent = { mcpServers: spec.harness.mcp_config };
+    await writeFile(p, JSON.stringify(mcpContent, null, 2));
+    written.push(".mcp.json");
+  }
+
+  // 4. Commands
+  if (spec.harness.commands) {
+    for (const [name, content] of Object.entries(spec.harness.commands)) {
+      const p = path.join(claudeDir, "commands", `${name}.md`);
+      await writeFile(p, content);
+      written.push(`.claude/commands/${name}.md`);
+    }
+  }
+
+  // 5. Rules
+  if (spec.harness.rules) {
+    for (const [name, content] of Object.entries(spec.harness.rules)) {
+      const p = path.join(claudeDir, "rules", `${name}.md`);
+      await writeFile(p, content);
+      written.push(`.claude/rules/${name}.md`);
+    }
+  }
+
+  // 6. Skills
+  if (spec.harness.skills) {
+    for (const [skillPath, content] of Object.entries(spec.harness.skills)) {
+      const p = path.join(claudeDir, "skills", `${skillPath}.md`);
+      await writeFile(p, content);
+      written.push(`.claude/skills/${skillPath}.md`);
+    }
+  }
+
+  // 7. Agents
+  if (spec.harness.agents) {
+    for (const [name, content] of Object.entries(spec.harness.agents)) {
+      const p = path.join(claudeDir, "agents", `${name}.md`);
+      await writeFile(p, content);
+      written.push(`.claude/agents/${name}.md`);
+    }
+  }
+
+  // 8. Docs
+  if (spec.harness.docs) {
+    for (const [name, content] of Object.entries(spec.harness.docs)) {
+      const p = path.join(claudeDir, "docs", `${name}.md`);
+      await writeFile(p, content);
+      written.push(`.claude/docs/${name}.md`);
+    }
+  }
+
+  return written;
+}
+
+export function summarizeSpec(spec: EnvironmentSpec): {
+  toolCount: number;
+  commandCount: number;
+  ruleCount: number;
+  skillCount: number;
+  agentCount: number;
+  pluginCommands: string[];
+} {
+  const pluginCommands = spec.tools
+    .map((t) => t.tool_id)
+    .filter((id) => {
+      // Check if this tool has a plugin_command in the registry
+      // We'll match against known plugin types
+      return false; // Will be populated by the describe command
+    });
+
+  return {
+    toolCount: spec.tools.length,
+    commandCount: Object.keys(spec.harness.commands || {}).length,
+    ruleCount: Object.keys(spec.harness.rules || {}).length,
+    skillCount: Object.keys(spec.harness.skills || {}).length,
+    agentCount: Object.keys(spec.harness.agents || {}).length,
+    pluginCommands,
+  };
+}

@@ -107,6 +107,12 @@
       "accessCount": 1,
       "lastAccessed": 1774910468555,
       "type": "file"
+    },
+    {
+      "path": "src/adapter/claude-code.ts",
+      "accessCount": 1,
+      "lastAccessed": 1774910504805,
+      "type": "file"
     }
   ],
   "userDirectives": []
