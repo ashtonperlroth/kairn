@@ -1,7 +1,7 @@
 {
-  "tool_name": "Read",
-  "tool_input_preview": "{\"file_path\":\"/Users/ashtonperlroth/Projects/kairn-v2/package.json\"}",
-  "error": "File does not exist. Note: your current working directory is /Users/ashtonperlroth/Projects/kairn-v2.",
-  "timestamp": "2026-03-30T22:37:09.667Z",
-  "retry_count": 1
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"npx tsx -e '\\nimport { writeEnvironment } from \\\"./src/adapter/claude-code.js\\\";\\nimport fs from \\\"fs/promises\\\";\\nimport path from \\\"path\\\";\\nimport os from \\\"os\\\";\\n\\nconst testDir = pat...",
+  "error": "Exit code 1\nnode:internal/process/promises:332\n    triggerUncaughtException(err, true /* fromPromise */);\n    ^\n\nError: Transform failed with 6 errors:\n/eval.ts:8:0: ERROR: Top-level await is currently not supported with the \"cjs\" output format\n/eval.ts:53:16: ERROR: Top-level await is currently not supported with the \"cjs\" output format\n/eval.ts:60:15: ERROR: Top-level await is currently not supported with the \"cjs\" output format\n/eval.ts:66:15: ERROR: Top-level await is currently not supported...",
+  "timestamp": "2026-03-30T22:44:13.374Z",
+  "retry_count": 2
 }

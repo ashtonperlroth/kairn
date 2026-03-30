@@ -125,6 +125,12 @@
       "accessCount": 1,
       "lastAccessed": 1774910586107,
       "type": "file"
+    },
+    {
+      "path": "test-e2e.ts",
+      "accessCount": 1,
+      "lastAccessed": 1774910667475,
+      "type": "file"
     }
   ],
   "userDirectives": []
