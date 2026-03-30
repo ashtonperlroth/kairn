@@ -89,6 +89,12 @@
       "accessCount": 1,
       "lastAccessed": 1774910341482,
       "type": "file"
+    },
+    {
+      "path": "src/registry/tools.json",
+      "accessCount": 1,
+      "lastAccessed": 1774910410365,
+      "type": "file"
     }
   ],
   "userDirectives": []

@@ -1,0 +1,340 @@
+[
+  {
+    "id": "context7",
+    "name": "Context7",
+    "description": "Live, version-specific library documentation lookup. Eliminates doc hallucination.",
+    "category": "search_research",
+    "tier": 1,
+    "type": "mcp_server",
+    "auth": "none",
+    "best_for": ["coding", "library-usage", "documentation", "any"],
+    "install": {
+      "mcp_config": {
+        "context7": {
+          "command": "npx",
+          "args": ["-y", "@upstash/context7-mcp@latest"]
+        }
+      }
+    }
+  },
+  {
+    "id": "sequential-thinking",
+    "name": "Sequential Thinking",
+    "description": "Explicit reasoning steps and branches for complex problem-solving.",
+    "category": "reasoning",
+    "tier": 1,
+    "type": "mcp_server",
+    "auth": "none",
+    "best_for": ["complex-tasks", "architecture", "debugging", "any"],
+    "install": {
+      "mcp_config": {
+        "sequential-thinking": {
+          "command": "npx",
+          "args": ["-y", "@anthropic/mcp-server-sequential-thinking"]
+        }
+      }
+    }
+  },
+  {
+    "id": "security-guidance",
+    "name": "Security Guidance",
+    "description": "Hook-based plugin that blocks 9 security anti-patterns (XSS, injection, eval).",
+    "category": "security",
+    "tier": 1,
+    "type": "plugin",
+    "auth": "none",
+    "best_for": ["coding", "security", "any"],
+    "install": {
+      "plugin_command": "/plugin install security-guidance@claude-plugins-official"
+    }
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "description": "PR management, code search, issue tracking, and commit operations.",
+    "category": "code_devtools",
+    "tier": 2,
+    "type": "mcp_server",
+    "auth": "oauth",
+    "best_for": ["coding", "collaboration", "open-source", "github"],
+    "install": {
+      "mcp_config": {
+        "github": {
+          "command": "npx",
+          "args": ["-y", "@anthropic/mcp-server-github"],
+          "env": {
+            "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "playwright",
+    "name": "Playwright",
+    "description": "Browser control for testing UIs, taking screenshots, and web automation.",
+    "category": "browser_automation",
+    "tier": 2,
+    "type": "plugin",
+    "auth": "none",
+    "best_for": ["web-dev", "testing", "frontend", "e2e-testing"],
+    "install": {
+      "plugin_command": "/plugin install playwright@claude-plugins-official"
+    }
+  },
+  {
+    "id": "semgrep",
+    "name": "Semgrep",
+    "description": "Static security analysis for finding vulnerabilities in code.",
+    "category": "security",
+    "tier": 2,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": ["coding", "security", "code-review"],
+    "install": {
+      "mcp_config": {
+        "semgrep": {
+          "command": "npx",
+          "args": ["-y", "@semgrep/mcp"],
+          "env": {
+            "SEMGREP_APP_TOKEN": "${SEMGREP_APP_TOKEN}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "exa",
+    "name": "Exa",
+    "description": "Semantic search optimized for technical and research content.",
+    "category": "search_research",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": ["research", "technical-search", "literature-review"],
+    "install": {
+      "mcp_config": {
+        "exa": {
+          "command": "npx",
+          "args": ["-y", "exa-mcp-server"],
+          "env": {
+            "EXA_API_KEY": "${EXA_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "brave-search",
+    "name": "Brave Search",
+    "description": "General-purpose web search for finding information online.",
+    "category": "search_research",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": ["research", "general-search", "web-lookup"],
+    "install": {
+      "mcp_config": {
+        "brave-search": {
+          "command": "npx",
+          "args": ["-y", "@anthropic/mcp-server-brave"],
+          "env": {
+            "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "firecrawl",
+    "name": "Firecrawl",
+    "description": "URL to clean markdown extraction with JavaScript rendering support.",
+    "category": "search_research",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": ["research", "web-scraping", "content-extraction"],
+    "install": {
+      "mcp_config": {
+        "firecrawl": {
+          "command": "npx",
+          "args": ["-y", "firecrawl-mcp"],
+          "env": {
+            "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "perplexity",
+    "name": "Perplexity",
+    "description": "AI-powered research answers with citations and source verification.",
+    "category": "search_research",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": ["research", "fact-checking", "deep-research"],
+    "install": {
+      "mcp_config": {
+        "perplexity": {
+          "command": "npx",
+          "args": ["-y", "@anthropic/mcp-server-perplexity"],
+          "env": {
+            "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "postgres",
+    "name": "PostgreSQL (Bytebase)",
+    "description": "Natural language SQL queries against PostgreSQL databases.",
+    "category": "data_infrastructure",
+    "tier": 4,
+    "type": "mcp_server",
+    "auth": "connection_string",
+    "best_for": ["database", "data-analysis", "backend", "sql"],
+    "install": {
+      "mcp_config": {
+        "postgres": {
+          "command": "npx",
+          "args": ["-y", "@bytebase/dbhub", "--dsn", "${DATABASE_URL}"]
+        }
+      }
+    }
+  },
+  {
+    "id": "supabase",
+    "name": "Supabase",
+    "description": "Production Postgres with row-level security and auth management.",
+    "category": "data_infrastructure",
+    "tier": 4,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": ["backend", "database", "auth", "supabase"],
+    "install": {
+      "mcp_config": {
+        "supabase": {
+          "command": "npx",
+          "args": ["-y", "@supabase/mcp-server"],
+          "env": {
+            "SUPABASE_URL": "${SUPABASE_URL}",
+            "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "description": "Read and send messages, summarize threads, search channels.",
+    "category": "communication",
+    "tier": 5,
+    "type": "mcp_server",
+    "auth": "oauth",
+    "best_for": ["communication", "team-collaboration", "outreach"],
+    "install": {
+      "mcp_config": {
+        "slack": {
+          "command": "npx",
+          "args": ["-y", "@anthropic/mcp-server-slack"],
+          "env": {
+            "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "description": "Read and update Notion pages, search databases and knowledge bases.",
+    "category": "communication",
+    "tier": 5,
+    "type": "mcp_server",
+    "auth": "oauth",
+    "best_for": ["documentation", "knowledge-base", "project-management"],
+    "install": {
+      "mcp_config": {
+        "notion": {
+          "command": "npx",
+          "args": ["-y", "@anthropic/mcp-server-notion"],
+          "env": {
+            "NOTION_API_KEY": "${NOTION_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "linear",
+    "name": "Linear",
+    "description": "Issue tracking, ticket management, and sprint planning.",
+    "category": "communication",
+    "tier": 5,
+    "type": "mcp_server",
+    "auth": "oauth",
+    "best_for": ["project-management", "issue-tracking", "agile"],
+    "install": {
+      "mcp_config": {
+        "linear": {
+          "command": "npx",
+          "args": ["-y", "@anthropic/mcp-server-linear"],
+          "env": {
+            "LINEAR_API_KEY": "${LINEAR_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "agentmail",
+    "name": "AgentMail",
+    "description": "Send programmatic emails for outreach, notifications, and workflows.",
+    "category": "communication",
+    "tier": 5,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": ["email", "outreach", "automation", "communication"],
+    "install": {
+      "mcp_config": {
+        "agentmail": {
+          "command": "npx",
+          "args": ["-y", "@agentmail/mcp-server"],
+          "env": {
+            "AGENTMAIL_API_KEY": "${AGENTMAIL_API_KEY}"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "figma",
+    "name": "Figma",
+    "description": "Read Figma designs for design-to-code generation workflows.",
+    "category": "design",
+    "tier": 6,
+    "type": "plugin",
+    "auth": "api_key",
+    "best_for": ["design-to-code", "frontend", "ui-development"],
+    "install": {
+      "plugin_command": "/plugin install figma@claude-plugins-official"
+    }
+  },
+  {
+    "id": "frontend-design",
+    "name": "Frontend Design",
+    "description": "Skill plugin for generating polished, non-generic UI components.",
+    "category": "design",
+    "tier": 6,
+    "type": "plugin",
+    "auth": "none",
+    "best_for": ["frontend", "ui-development", "web-dev", "design"],
+    "install": {
+      "plugin_command": "/plugin install frontend-design@claude-plugins-official"
+    }
+  }
+]
