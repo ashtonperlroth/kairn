@@ -7,6 +7,25 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.7.0] — 2026-03-31
+
+### Added
+- **Verification section** in CLAUDE.md template — concrete verify commands (build, test, lint, type check) per project type; research projects get source-citation verification
+- **Known Gotchas section** in CLAUDE.md template — living memory that grows with corrections, auto-prune guidance at 10 items
+- **`/project:spec` command** — interview-based spec creation (5-8 questions → structured spec in docs/SPRINT.md)
+- **`/project:prove` command** — verification on demand (run tests, diff vs main, rate confidence HIGH/MEDIUM/LOW)
+- **`/project:grill` command** — adversarial code review (challenges each change, rates BLOCKER/SHOULD-FIX/NITPICK)
+- **`/project:reset` command** — clean restart preserving learnings (stash + reimplementation)
+- **Statusline config** — auto-generated `statusLine` in settings.json for code projects (git branch + open task count)
+- **Debugging guidance** in CLAUDE.md — "paste raw errors, use subagents for deep investigation"
+- **Git workflow guidance** in CLAUDE.md — small commits, conventional format, <200 lines per PR
+
+### Changed
+- **CLAUDE.md context budget** increased from 100 to 120 lines to accommodate new sections
+- **Seed templates updated** — all 4 templates include new sections; code templates include new commands + statusline
+
+---
+
 ## [1.6.0] — 2026-03-30
 
 ### Added

@@ -17,7 +17,7 @@ program
   .description(
     "Compile natural language intent into optimized Claude Code environments"
   )
-  .version("1.6.0")
+  .version("1.7.0")
   .option("--no-color", "Disable colored output");
 
 program.addCommand(initCommand);
