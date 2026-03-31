@@ -7,6 +7,56 @@ async function writeFile(filePath: string, content: string): Promise<void> {
   await fs.writeFile(filePath, content, "utf-8");
 }
 
+export function buildFileMap(spec: EnvironmentSpec): Map<string, string> {
+  const files = new Map<string, string>();
+
+  if (spec.harness.claude_md) {
+    files.set(".claude/CLAUDE.md", spec.harness.claude_md);
+  }
+  if (spec.harness.settings && Object.keys(spec.harness.settings).length > 0) {
+    files.set(
+      ".claude/settings.json",
+      JSON.stringify(spec.harness.settings, null, 2)
+    );
+  }
+  if (
+    spec.harness.mcp_config &&
+    Object.keys(spec.harness.mcp_config).length > 0
+  ) {
+    files.set(
+      ".mcp.json",
+      JSON.stringify({ mcpServers: spec.harness.mcp_config }, null, 2)
+    );
+  }
+  if (spec.harness.commands) {
+    for (const [name, content] of Object.entries(spec.harness.commands)) {
+      files.set(`.claude/commands/${name}.md`, content);
+    }
+  }
+  if (spec.harness.rules) {
+    for (const [name, content] of Object.entries(spec.harness.rules)) {
+      files.set(`.claude/rules/${name}.md`, content);
+    }
+  }
+  if (spec.harness.skills) {
+    for (const [skillPath, content] of Object.entries(spec.harness.skills)) {
+      files.set(`.claude/skills/${skillPath}.md`, content);
+    }
+  }
+  if (spec.harness.agents) {
+    for (const [name, content] of Object.entries(spec.harness.agents)) {
+      files.set(`.claude/agents/${name}.md`, content);
+    }
+  }
+  if (spec.harness.docs) {
+    for (const [name, content] of Object.entries(spec.harness.docs)) {
+      files.set(`.claude/docs/${name}.md`, content);
+    }
+  }
+
+  return files;
+}
+
 export async function writeEnvironment(
   spec: EnvironmentSpec,
   targetDir: string

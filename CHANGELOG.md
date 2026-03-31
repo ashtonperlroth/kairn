@@ -7,6 +7,18 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.4.0] — 2026-03-30
+
+### Added
+- **Sprint contract pattern** — `/project:sprint` command for defining acceptance criteria before coding, writes to `docs/SPRINT.md`
+- **Multi-agent QA pipeline** — `@qa-orchestrator` (sonnet), `@linter` (haiku), `@e2e-tester` (sonnet, Playwright) agent templates in generated environments
+- **PostCompact hook** — Auto re-reads CLAUDE.md and SPRINT.md after context compaction to restore project context
+- **Context budget enforcement** — Strict limits in compilation prompt (≤6 MCP servers, ≤100 lines CLAUDE.md, ≤3 skills, ≤3 agents) with post-compilation validation warnings
+- **`kairn optimize --diff`** — Preview what would change before writing, with colored diff output and apply prompt
+- **`kairn doctor`** — Validate .claude/ environments against best practices with weighted scoring (10 checks, pass/warn/fail)
+
+---
+
 ## [1.3.0] — 2026-03-30
 
 ### Added

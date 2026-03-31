@@ -154,6 +154,29 @@ async function callLLM(config: KairnConfig, userMessage: string): Promise<string
   throw new Error(`Unsupported provider: ${config.provider}. Run \`kairn init\` to reconfigure.`);
 }
 
+function validateSpec(spec: EnvironmentSpec, onProgress?: (msg: string) => void): void {
+  const warnings: string[] = [];
+
+  if (spec.tools.length > 8) {
+    warnings.push(`${spec.tools.length} MCP servers selected (recommended: ≤6)`);
+  }
+
+  if (spec.harness.claude_md) {
+    const lines = spec.harness.claude_md.split('\n').length;
+    if (lines > 150) {
+      warnings.push(`CLAUDE.md is ${lines} lines (recommended: ≤100)`);
+    }
+  }
+
+  if (spec.harness.skills && Object.keys(spec.harness.skills).length > 5) {
+    warnings.push(`${Object.keys(spec.harness.skills).length} skills (recommended: ≤3)`);
+  }
+
+  for (const warning of warnings) {
+    onProgress?.(`⚠ ${warning}`);
+  }
+}
+
 export async function compile(
   intent: string,
   onProgress?: (msg: string) => void
@@ -179,6 +202,8 @@ export async function compile(
     created_at: new Date().toISOString(),
     ...parsed,
   };
+
+  validateSpec(spec, onProgress);
 
   // Save to ~/.kairn/envs/
   await ensureDirs();

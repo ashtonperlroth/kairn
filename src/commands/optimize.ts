@@ -6,10 +6,84 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadConfig } from "../config.js";
 import { compile } from "../compiler/compile.js";
-import { writeEnvironment, summarizeSpec } from "../adapter/claude-code.js";
+import {
+  writeEnvironment,
+  summarizeSpec,
+  buildFileMap,
+} from "../adapter/claude-code.js";
 import { scanProject } from "../scanner/scan.js";
 import type { ProjectProfile } from "../scanner/scan.js";
-import type { RegistryTool } from "../types.js";
+import type { EnvironmentSpec, RegistryTool } from "../types.js";
+
+interface FileDiff {
+  path: string;
+  status: "new" | "modified" | "unchanged";
+  diff: string;
+}
+
+function simpleDiff(oldContent: string, newContent: string): string[] {
+  const oldLines = oldContent.split("\n");
+  const newLines = newContent.split("\n");
+  const output: string[] = [];
+
+  const maxLines = Math.max(oldLines.length, newLines.length);
+  for (let i = 0; i < maxLines; i++) {
+    const oldLine = oldLines[i];
+    const newLine = newLines[i];
+
+    if (oldLine === undefined) {
+      output.push(chalk.green(`+ ${newLine}`));
+    } else if (newLine === undefined) {
+      output.push(chalk.red(`- ${oldLine}`));
+    } else if (oldLine !== newLine) {
+      output.push(chalk.red(`- ${oldLine}`));
+      output.push(chalk.green(`+ ${newLine}`));
+    }
+  }
+
+  return output;
+}
+
+async function generateDiff(
+  spec: EnvironmentSpec,
+  targetDir: string
+): Promise<FileDiff[]> {
+  const fileMap = buildFileMap(spec);
+  const results: FileDiff[] = [];
+
+  for (const [relativePath, newContent] of fileMap) {
+    const absolutePath = path.join(targetDir, relativePath);
+    let oldContent: string | null = null;
+    try {
+      oldContent = await fs.readFile(absolutePath, "utf-8");
+    } catch {
+      // File does not exist yet
+    }
+
+    if (oldContent === null) {
+      results.push({
+        path: relativePath,
+        status: "new",
+        diff: chalk.green("+ NEW FILE"),
+      });
+    } else if (oldContent === newContent) {
+      results.push({
+        path: relativePath,
+        status: "unchanged",
+        diff: "",
+      });
+    } else {
+      const diffLines = simpleDiff(oldContent, newContent);
+      results.push({
+        path: relativePath,
+        status: "modified",
+        diff: diffLines.join("\n"),
+      });
+    }
+  }
+
+  return results;
+}
 
 async function loadRegistry(): Promise<RegistryTool[]> {
   const __filename = fileURLToPath(import.meta.url);
@@ -112,7 +186,8 @@ export const optimizeCommand = new Command("optimize")
   .description("Scan an existing project and generate or optimize its Claude Code environment")
   .option("-y, --yes", "Skip confirmation prompts")
   .option("--audit-only", "Only audit the existing harness, don't generate changes")
-  .action(async (options: { yes?: boolean; auditOnly?: boolean }) => {
+  .option("--diff", "Preview changes as a diff without writing")
+  .action(async (options: { yes?: boolean; auditOnly?: boolean; diff?: boolean }) => {
     const config = await loadConfig();
     if (!config) {
       console.log(
@@ -248,7 +323,39 @@ export const optimizeCommand = new Command("optimize")
       }
     }
 
-    // 6. Write
+    // 6. Diff preview or direct write
+    if (options.diff) {
+      const diffs = await generateDiff(spec, targetDir);
+      const changedDiffs = diffs.filter((d) => d.status !== "unchanged");
+
+      if (changedDiffs.length === 0) {
+        console.log(chalk.green("\n  ✓ No changes needed — environment is already up to date.\n"));
+        return;
+      }
+
+      console.log(chalk.cyan("\n  Changes preview:\n"));
+      for (const d of changedDiffs) {
+        console.log(chalk.cyan(`  --- ${d.path}`));
+        if (d.status === "new") {
+          console.log(`    ${d.diff}`);
+        } else {
+          for (const line of d.diff.split("\n")) {
+            console.log(`    ${line}`);
+          }
+        }
+        console.log("");
+      }
+
+      const apply = await confirm({
+        message: "Apply these changes?",
+        default: true,
+      });
+      if (!apply) {
+        console.log(chalk.dim("\n  Aborted.\n"));
+        return;
+      }
+    }
+
     const written = await writeEnvironment(spec, targetDir);
 
     console.log(chalk.green("\n  ✓ Environment written\n"));
