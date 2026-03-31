@@ -4,12 +4,16 @@ import fs from "fs/promises";
 import path from "path";
 import { getTemplatesDir } from "../config.js";
 import type { EnvironmentSpec } from "../types.js";
+import { ui } from "../ui.js";
+import { printCompactBanner } from "../logo.js";
 
 export const templatesCommand = new Command("templates")
   .description("Browse available templates")
   .option("--category <cat>", "filter templates by category keyword")
   .option("--json", "output raw JSON array")
   .action(async (options: { category?: string; json?: boolean }) => {
+    printCompactBanner();
+
     const templatesDir = getTemplatesDir();
 
     let files: string[];
@@ -18,7 +22,7 @@ export const templatesCommand = new Command("templates")
     } catch {
       console.log(
         chalk.dim(
-          "\n  No templates found. Templates will be installed with "
+          "  No templates found. Templates will be installed with "
         ) +
           chalk.bold("kairn init") +
           chalk.dim(
@@ -33,7 +37,7 @@ export const templatesCommand = new Command("templates")
     if (jsonFiles.length === 0) {
       console.log(
         chalk.dim(
-          "\n  No templates found. Templates will be installed with "
+          "  No templates found. Templates will be installed with "
         ) +
           chalk.bold("kairn init") +
           chalk.dim(
@@ -75,27 +79,24 @@ export const templatesCommand = new Command("templates")
 
     if (filtered.length === 0) {
       console.log(
-        chalk.dim(`\n  No templates matched category "${options.category}".\n`)
+        chalk.dim(`  No templates matched category "${options.category}".\n`)
       );
       return;
     }
 
-    console.log(chalk.cyan("\n  Available Templates\n"));
+    console.log(ui.section("Templates"));
+    console.log("");
 
     for (const spec of filtered) {
       const toolCount = spec.tools?.length ?? 0;
       const commandCount = Object.keys(spec.harness?.commands ?? {}).length;
       const ruleCount = Object.keys(spec.harness?.rules ?? {}).length;
 
+      console.log(ui.kv("Name", chalk.bold(spec.name)));
+      console.log(ui.kv("ID", chalk.dim(spec.id)));
+      console.log(ui.kv("Description", spec.description));
       console.log(
-        chalk.bold(`  ${spec.name}`) +
-          chalk.dim(` (ID: ${spec.id})`)
-      );
-      console.log(chalk.dim(`    ${spec.description}`));
-      console.log(
-        chalk.dim(
-          `    Tools: ${toolCount} | Commands: ${commandCount} | Rules: ${ruleCount}`
-        )
+        ui.kv("Contents", `${toolCount} tools · ${commandCount} commands · ${ruleCount} rules`)
       );
       console.log("");
     }

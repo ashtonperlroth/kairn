@@ -9,6 +9,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadConfig, saveConfig, getConfigPath, getTemplatesDir } from "../config.js";
 import type { KairnConfig, LLMProvider } from "../types.js";
+import { ui } from "../ui.js";
+import { printFullBanner } from "../logo.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,7 +53,7 @@ async function installSeedTemplates(): Promise<void> {
   }
 
   if (installed > 0) {
-    console.log(chalk.green(`  ✓ ${installed} template${installed === 1 ? "" : "s"} installed`));
+    console.log(ui.success(`${installed} template${installed === 1 ? "" : "s"} installed`));
   }
 }
 
@@ -130,15 +132,12 @@ function detectClaudeCode(): boolean {
 export const initCommand = new Command("init")
   .description("Set up Kairn with your API key")
   .action(async () => {
-    console.log(chalk.cyan("\n  Kairn Setup\n"));
+    printFullBanner("Setup");
 
     const existing = await loadConfig();
     if (existing) {
-      console.log(
-        chalk.yellow("  Config already exists at ") +
-          chalk.dim(getConfigPath())
-      );
-      console.log(chalk.yellow("  Running setup will overwrite it.\n"));
+      console.log(ui.warn(`Config already exists at ${chalk.dim(getConfigPath())}`));
+      console.log(ui.warn("Running setup will overwrite it.\n"));
     }
 
     const provider = await select<LLMProvider>({
@@ -163,7 +162,7 @@ export const initCommand = new Command("init")
     });
 
     if (!apiKey) {
-      console.log(chalk.red("\n  No API key provided. Aborting."));
+      console.log(ui.error("No API key provided. Aborting."));
       process.exit(1);
     }
 
@@ -171,13 +170,11 @@ export const initCommand = new Command("init")
     const valid = await verifyKey(provider, apiKey, model);
 
     if (!valid) {
-      console.log(
-        chalk.red("  Invalid API key. Check your key and try again.")
-      );
+      console.log(ui.error("Invalid API key. Check your key and try again."));
       process.exit(1);
     }
 
-    console.log(chalk.green("  ✓ API key verified"));
+    console.log(ui.success("API key verified"));
 
     const config: KairnConfig = {
       provider,
@@ -188,29 +185,22 @@ export const initCommand = new Command("init")
     };
 
     await saveConfig(config);
-    console.log(
-      chalk.green("  ✓ Config saved to ") + chalk.dim(getConfigPath())
-    );
-    console.log(
-      chalk.dim(`  ✓ Provider: ${providerInfo.name}, Model: ${model}`)
-    );
+    console.log(ui.success(`Config saved to ${chalk.dim(getConfigPath())}`));
+    console.log(ui.kv("Provider", providerInfo.name));
+    console.log(ui.kv("Model", model));
 
     await installSeedTemplates();
 
     const hasClaude = detectClaudeCode();
     if (hasClaude) {
-      console.log(chalk.green("  ✓ Claude Code detected"));
+      console.log(ui.success("Claude Code detected"));
     } else {
       console.log(
-        chalk.yellow(
-          "  ⚠ Claude Code not found. Install it: npm install -g @anthropic-ai/claude-code"
-        )
+        ui.warn("Claude Code not found. Install it: npm install -g @anthropic-ai/claude-code")
       );
     }
 
     console.log(
-      chalk.cyan("\n  Ready! Run ") +
-        chalk.bold("kairn describe") +
-        chalk.cyan(" to create your first environment.\n")
+      "\n" + ui.success(`Ready! Run ${chalk.bold("kairn describe")} to create your first environment.`) + "\n"
     );
   });

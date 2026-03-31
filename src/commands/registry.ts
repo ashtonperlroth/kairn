@@ -3,12 +3,16 @@ import chalk from "chalk";
 import { input, select } from "@inquirer/prompts";
 import { loadRegistry, loadUserRegistry, saveUserRegistry } from "../registry/loader.js";
 import type { RegistryTool } from "../types.js";
+import { ui } from "../ui.js";
+import { printCompactBanner } from "../logo.js";
 
 const listCommand = new Command("list")
   .description("List tools in the registry")
   .option("--category <cat>", "Filter by category")
   .option("--user-only", "Show only user-defined tools")
   .action(async (options: { category?: string; userOnly?: boolean }) => {
+    printCompactBanner();
+
     let all: RegistryTool[];
     let userTools: RegistryTool[];
 
@@ -16,7 +20,7 @@ const listCommand = new Command("list")
       [all, userTools] = await Promise.all([loadRegistry(), loadUserRegistry()]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(chalk.red(`\n  Failed to load registry: ${msg}\n`));
+      console.log(ui.error(`Failed to load registry: ${msg}\n`));
       process.exit(1);
     }
 
@@ -42,7 +46,8 @@ const listCommand = new Command("list")
     const bundledCount = all.filter((t) => !userIds.has(t.id)).length;
     const userCount = userIds.size;
 
-    console.log(chalk.cyan("\n  Registry Tools\n"));
+    console.log(ui.section("Registry Tools"));
+    console.log("");
 
     for (const tool of tools) {
       const isUser = userIds.has(tool.id);
@@ -52,7 +57,7 @@ const listCommand = new Command("list")
         tool.auth,
       ].join(", ");
 
-      console.log(chalk.bold(`  ${tool.id}`) + chalk.dim(` (${meta})`));
+      console.log(`  ${ui.accent(tool.id)}` + chalk.dim(` (${meta})`));
       console.log(chalk.dim(`    ${tool.description}`));
 
       if (tool.best_for.length > 0) {
@@ -189,26 +194,26 @@ const addCommand = new Command("add")
         ...(signup_url ? { signup_url } : {}),
       };
 
-      let userTools: RegistryTool[];
+      let userToolsList: RegistryTool[];
       try {
-        userTools = await loadUserRegistry();
+        userToolsList = await loadUserRegistry();
       } catch {
-        userTools = [];
+        userToolsList = [];
       }
 
-      const existingIdx = userTools.findIndex((t) => t.id === id);
+      const existingIdx = userToolsList.findIndex((t) => t.id === id);
       if (existingIdx >= 0) {
-        userTools[existingIdx] = tool;
+        userToolsList[existingIdx] = tool;
       } else {
-        userTools.push(tool);
+        userToolsList.push(tool);
       }
 
-      await saveUserRegistry(userTools);
+      await saveUserRegistry(userToolsList);
 
-      console.log(chalk.green(`\n  ✓ Tool ${id} added to user registry\n`));
+      console.log(ui.success(`Tool ${id} added to user registry\n`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(chalk.red(`\n  Failed to add tool: ${msg}\n`));
+      console.log(ui.error(`Failed to add tool: ${msg}\n`));
       process.exit(1);
     }
   });

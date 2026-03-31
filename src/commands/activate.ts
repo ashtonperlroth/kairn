@@ -5,11 +5,15 @@ import path from "path";
 import { getEnvsDir, getTemplatesDir } from "../config.js";
 import { writeEnvironment } from "../adapter/claude-code.js";
 import type { EnvironmentSpec } from "../types.js";
+import { ui } from "../ui.js";
+import { printCompactBanner } from "../logo.js";
 
 export const activateCommand = new Command("activate")
   .description("Re-deploy a saved environment to the current directory")
   .argument("<env_id>", "Environment ID (from kairn list)")
   .action(async (envId: string) => {
+    printCompactBanner();
+
     const envsDir = getEnvsDir();
     const templatesDir = getTemplatesDir();
 
@@ -49,7 +53,7 @@ export const activateCommand = new Command("activate")
         sourceDir = templatesDir;
         fromTemplate = true;
       } else {
-        console.log(chalk.red(`\n  Environment "${envId}" not found.`));
+        console.log(ui.error(`Environment "${envId}" not found.`));
         console.log(chalk.dim("  Run kairn list to see saved environments."));
         console.log(chalk.dim("  Run kairn templates to see available templates.\n"));
         process.exit(1);
@@ -60,20 +64,16 @@ export const activateCommand = new Command("activate")
     const spec = JSON.parse(data) as EnvironmentSpec;
 
     const label = fromTemplate ? chalk.dim(" (template)") : "";
-    console.log(chalk.cyan(`\n  Activating: ${spec.name}`) + label);
+    console.log(chalk.cyan(`  Activating: ${spec.name}`) + label);
     console.log(chalk.dim(`  ${spec.description}\n`));
 
     const targetDir = process.cwd();
     const written = await writeEnvironment(spec, targetDir);
 
-    console.log(chalk.green("  ✓ Environment written\n"));
+    console.log(ui.success("Environment written\n"));
     for (const file of written) {
-      console.log(chalk.dim(`    ${file}`));
+      console.log(ui.file(file));
     }
 
-    console.log(
-      chalk.cyan("\n  Ready! Run ") +
-        chalk.bold("claude") +
-        chalk.cyan(" to start.\n")
-    );
+    console.log("\n" + ui.success(`Ready! Run: $ claude`) + "\n");
   });

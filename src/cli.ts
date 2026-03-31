@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import chalk from "chalk";
 import { initCommand } from "./commands/init.js";
 import { describeCommand } from "./commands/describe.js";
 import { listCommand } from "./commands/list.js";
@@ -16,7 +17,8 @@ program
   .description(
     "Compile natural language intent into optimized Claude Code environments"
   )
-  .version("1.5.1");
+  .version("1.5.1")
+  .option("--no-color", "Disable colored output");
 
 program.addCommand(initCommand);
 program.addCommand(describeCommand);
@@ -27,5 +29,10 @@ program.addCommand(updateRegistryCommand);
 program.addCommand(doctorCommand);
 program.addCommand(registryCommand);
 program.addCommand(templatesCommand);
+
+// Check for --no-color before parsing (Commander handles it but chalk needs manual disable)
+if (process.argv.includes("--no-color") || process.env.NO_COLOR) {
+  chalk.level = 0;
+}
 
 program.parse();

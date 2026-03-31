@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
+import ora from "ora";
 import fs from "fs/promises";
 import path from "path";
 import { loadConfig } from "../config.js";
@@ -16,6 +17,8 @@ import type { RuntimeTarget } from "../types.js";
 import { scanProject } from "../scanner/scan.js";
 import type { ProjectProfile } from "../scanner/scan.js";
 import type { EnvironmentSpec } from "../types.js";
+import { ui } from "../ui.js";
+import { printCompactBanner } from "../logo.js";
 
 interface FileDiff {
   path: string;
@@ -172,42 +175,41 @@ export const optimizeCommand = new Command("optimize")
   .option("--diff", "Preview changes as a diff without writing")
   .option("--runtime <runtime>", "Target runtime (claude-code or hermes)", "claude-code")
   .action(async (options: { yes?: boolean; auditOnly?: boolean; diff?: boolean; runtime?: string }) => {
+    printCompactBanner();
+
     const config = await loadConfig();
     if (!config) {
-      console.log(
-        chalk.red("\n  No config found. Run ") +
-          chalk.bold("kairn init") +
-          chalk.red(" first.\n")
-      );
+      console.log(ui.errorBox("KAIRN — Error", "No config found. Run kairn init first."));
       process.exit(1);
     }
 
     const targetDir = process.cwd();
 
     // 1. Scan
-    console.log(chalk.dim("\n  Scanning project..."));
+    console.log(ui.section("Project Scan"));
+    const scanSpinner = ora({ text: "Scanning project...", indent: 2 }).start();
     const profile = await scanProject(targetDir);
+    scanSpinner.stop();
 
     // 2. Show profile
-    console.log(chalk.cyan("\n  Project Profile\n"));
-    if (profile.language) console.log(chalk.dim(`  Language:   ${profile.language}`));
-    if (profile.framework) console.log(chalk.dim(`  Framework:  ${profile.framework}`));
-    console.log(chalk.dim(`  Dependencies: ${profile.dependencies.length}`));
-    if (profile.testCommand) console.log(chalk.dim(`  Tests:      ${profile.testCommand}`));
-    if (profile.buildCommand) console.log(chalk.dim(`  Build:      ${profile.buildCommand}`));
-    if (profile.hasDocker) console.log(chalk.dim("  Docker:     yes"));
-    if (profile.hasCi) console.log(chalk.dim("  CI/CD:      yes"));
-    if (profile.envKeys.length > 0) console.log(chalk.dim(`  Env keys:   ${profile.envKeys.join(", ")}`));
+    if (profile.language) console.log(ui.kv("Language:", profile.language));
+    if (profile.framework) console.log(ui.kv("Framework:", profile.framework));
+    console.log(ui.kv("Dependencies:", String(profile.dependencies.length)));
+    if (profile.testCommand) console.log(ui.kv("Tests:", profile.testCommand));
+    if (profile.buildCommand) console.log(ui.kv("Build:", profile.buildCommand));
+    if (profile.hasDocker) console.log(ui.kv("Docker:", "yes"));
+    if (profile.hasCi) console.log(ui.kv("CI/CD:", "yes"));
+    if (profile.envKeys.length > 0) console.log(ui.kv("Env keys:", profile.envKeys.join(", ")));
 
     // 3. Audit existing harness
     if (profile.hasClaudeDir) {
-      console.log(chalk.yellow("\n  Existing .claude/ harness detected\n"));
-      console.log(chalk.dim(`  CLAUDE.md:  ${profile.claudeMdLineCount} lines${profile.claudeMdLineCount > 200 ? chalk.yellow(" ⚠ bloated") : chalk.green(" ✓")}`));
-      console.log(chalk.dim(`  MCP servers: ${profile.mcpServerCount}`));
-      console.log(chalk.dim(`  Commands:   ${profile.existingCommands.length > 0 ? profile.existingCommands.map(c => c).join(", ") : "none"}`));
-      console.log(chalk.dim(`  Rules:      ${profile.existingRules.length > 0 ? profile.existingRules.join(", ") : "none"}`));
-      console.log(chalk.dim(`  Skills:     ${profile.existingSkills.length > 0 ? profile.existingSkills.join(", ") : "none"}`));
-      console.log(chalk.dim(`  Agents:     ${profile.existingAgents.length > 0 ? profile.existingAgents.join(", ") : "none"}`));
+      console.log(ui.section("Harness Audit"));
+      console.log(ui.kv("CLAUDE.md:", `${profile.claudeMdLineCount} lines${profile.claudeMdLineCount > 200 ? " ⚠ bloated" : " ✓"}`));
+      console.log(ui.kv("MCP servers:", String(profile.mcpServerCount)));
+      console.log(ui.kv("Commands:", profile.existingCommands.length > 0 ? profile.existingCommands.join(", ") : "none"));
+      console.log(ui.kv("Rules:", profile.existingRules.length > 0 ? profile.existingRules.join(", ") : "none"));
+      console.log(ui.kv("Skills:", profile.existingSkills.length > 0 ? profile.existingSkills.join(", ") : "none"));
+      console.log(ui.kv("Agents:", profile.existingAgents.length > 0 ? profile.existingAgents.join(", ") : "none"));
 
       // Quick audit checks
       const issues: string[] = [];
@@ -224,12 +226,12 @@ export const optimizeCommand = new Command("optimize")
       if (profile.hasSrc && scopedRules.length === 0) issues.push("No path-scoped rules — consider adding api.md, testing.md, or frontend.md rules");
 
       if (issues.length > 0) {
-        console.log(chalk.yellow("\n  Issues Found:\n"));
+        console.log("");
         for (const issue of issues) {
-          console.log(chalk.yellow(`    ⚠ ${issue}`));
+          console.log(ui.warn(issue));
         }
       } else {
-        console.log(chalk.green("\n  ✓ No obvious issues found"));
+        console.log(ui.success("No obvious issues found"));
       }
 
       if (options.auditOnly) {
@@ -267,15 +269,16 @@ export const optimizeCommand = new Command("optimize")
     // 4. Compile with scanned profile
     const intent = buildOptimizeIntent(profile);
     let spec;
+    const spinner = ora({ text: "Compiling optimized environment...", indent: 2 }).start();
     try {
       spec = await compile(intent, (msg) => {
-        process.stdout.write(`\r  ${chalk.dim(msg)}                    `);
+        spinner.text = msg;
       });
-      process.stdout.write("\r                                              \r");
+      spinner.succeed("Environment compiled");
     } catch (err) {
-      process.stdout.write("\r                                              \r");
+      spinner.fail("Compilation failed");
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(chalk.red(`\n  Optimization failed: ${msg}\n`));
+      console.log(ui.errorBox("KAIRN — Error", `Optimization failed: ${msg}`));
       process.exit(1);
     }
 
@@ -283,27 +286,20 @@ export const optimizeCommand = new Command("optimize")
     const registry = await loadRegistry();
     const summary = summarizeSpec(spec, registry);
 
-    console.log(chalk.green("  ✓ Environment compiled\n"));
-    console.log(chalk.cyan("  Name: ") + spec.name);
-    console.log(chalk.cyan("  Tools: ") + summary.toolCount);
-    console.log(chalk.cyan("  Commands: ") + summary.commandCount);
-    console.log(chalk.cyan("  Rules: ") + summary.ruleCount);
-    console.log(chalk.cyan("  Skills: ") + summary.skillCount);
-    console.log(chalk.cyan("  Agents: ") + summary.agentCount);
+    console.log("");
+    console.log(ui.kv("Name:", spec.name));
+    console.log(ui.kv("Tools:", String(summary.toolCount)));
+    console.log(ui.kv("Commands:", String(summary.commandCount)));
+    console.log(ui.kv("Rules:", String(summary.ruleCount)));
+    console.log(ui.kv("Skills:", String(summary.skillCount)));
+    console.log(ui.kv("Agents:", String(summary.agentCount)));
 
     if (spec.tools.length > 0) {
-      console.log(chalk.dim("\n  Selected tools:"));
+      console.log(ui.section("Selected Tools"));
       for (const tool of spec.tools) {
         const regTool = registry.find((t) => t.id === tool.tool_id);
         const name = regTool?.name || tool.tool_id;
-        console.log(chalk.dim(`    - ${name}: ${tool.reason}`));
-      }
-    }
-
-    if (summary.pluginCommands.length > 0) {
-      console.log(chalk.yellow("\n  Plugins to install manually:"));
-      for (const cmd of summary.pluginCommands) {
-        console.log(chalk.yellow(`    ${cmd}`));
+        console.log(ui.tool(name, tool.reason));
       }
     }
 
@@ -313,13 +309,14 @@ export const optimizeCommand = new Command("optimize")
       const changedDiffs = diffs.filter((d) => d.status !== "unchanged");
 
       if (changedDiffs.length === 0) {
-        console.log(chalk.green("\n  ✓ No changes needed — environment is already up to date.\n"));
+        console.log(ui.success("No changes needed — environment is already up to date."));
+        console.log("");
         return;
       }
 
-      console.log(chalk.cyan("\n  Changes preview:\n"));
+      console.log(ui.section("Changes Preview"));
       for (const d of changedDiffs) {
-        console.log(chalk.cyan(`  --- ${d.path}`));
+        console.log(chalk.cyan(`\n  --- ${d.path}`));
         if (d.status === "new") {
           console.log(`    ${d.diff}`);
         } else {
@@ -327,8 +324,8 @@ export const optimizeCommand = new Command("optimize")
             console.log(`    ${line}`);
           }
         }
-        console.log("");
       }
+      console.log("");
 
       const apply = await confirm({
         message: "Apply these changes?",
@@ -344,42 +341,38 @@ export const optimizeCommand = new Command("optimize")
 
     if (runtime === "hermes") {
       await writeHermesEnvironment(spec, registry);
-      console.log(chalk.green("\n  ✓ Environment written for Hermes\n"));
-      console.log(chalk.cyan("\n  Ready! Run ") + chalk.bold("hermes") + chalk.cyan(" to start.\n"));
+      console.log(ui.divider());
+      console.log(ui.success(`Ready! Run: $ hermes`));
+      console.log("");
     } else {
       const written = await writeEnvironment(spec, targetDir);
 
-      console.log(chalk.green("\n  ✓ Environment written\n"));
+      console.log(ui.section("Files Written"));
       for (const file of written) {
-        console.log(chalk.dim(`    ${file}`));
+        console.log(ui.file(file));
       }
 
       if (summary.envSetup.length > 0) {
-        console.log(chalk.yellow("\n  API keys needed (set these environment variables):\n"));
+        console.log(ui.section("Setup Required"));
         const seen = new Set<string>();
         for (const env of summary.envSetup) {
           if (seen.has(env.envVar)) continue;
           seen.add(env.envVar);
-          console.log(chalk.bold(`    export ${env.envVar}="your-key-here"`));
-          console.log(chalk.dim(`      ${env.description}`));
-          if (env.signupUrl) {
-            console.log(chalk.dim(`      Get one at: ${env.signupUrl}`));
-          }
+          console.log(ui.envVar(env.envVar, env.description, env.signupUrl));
           console.log("");
         }
       }
 
       if (summary.pluginCommands.length > 0) {
-        console.log(chalk.yellow("  Install plugins by running these in Claude Code:"));
+        console.log(ui.section("Plugins"));
         for (const cmd of summary.pluginCommands) {
-          console.log(chalk.bold(`    ${cmd}`));
+          console.log(ui.cmd(cmd));
         }
+        console.log("");
       }
 
-      console.log(
-        chalk.cyan("\n  Ready! Run ") +
-          chalk.bold("claude") +
-          chalk.cyan(" to start.\n")
-      );
+      console.log(ui.divider());
+      console.log(ui.success("Ready! Run: $ claude"));
+      console.log("");
     }
   });

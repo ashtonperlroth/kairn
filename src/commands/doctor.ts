@@ -2,6 +2,8 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { scanProject } from "../scanner/scan.js";
 import type { ProjectProfile } from "../scanner/scan.js";
+import { ui } from "../ui.js";
+import { printFullBanner } from "../logo.js";
 
 interface Check {
   name: string;
@@ -180,14 +182,16 @@ export const doctorCommand = new Command("doctor")
     "Validate the current Claude Code environment against best practices"
   )
   .action(async () => {
+    printFullBanner("Doctor");
+
     const targetDir = process.cwd();
 
-    console.log(chalk.dim("\n  Checking .claude/ environment...\n"));
+    console.log(chalk.dim("  Checking .claude/ environment...\n"));
 
     const profile = await scanProject(targetDir);
 
     if (!profile.hasClaudeDir) {
-      console.log(chalk.red("  ❌ No .claude/ directory found.\n"));
+      console.log(ui.error("No .claude/ directory found.\n"));
       console.log(
         chalk.dim("  Run ") +
           chalk.bold("kairn describe") +
@@ -200,21 +204,18 @@ export const doctorCommand = new Command("doctor")
 
     const checks = runChecks(profile);
 
+    console.log(ui.section("Health Check"));
+    console.log("");
+
     // Display results
     for (const check of checks) {
-      const icon =
-        check.status === "pass"
-          ? chalk.green("✅")
-          : check.status === "warn"
-            ? chalk.yellow("⚠️ ")
-            : chalk.red("❌");
-      const msg =
-        check.status === "pass"
-          ? chalk.dim(check.message)
-          : check.status === "warn"
-            ? chalk.yellow(check.message)
-            : chalk.red(check.message);
-      console.log(`  ${icon} ${check.name}: ${msg}`);
+      if (check.status === "pass") {
+        console.log(ui.success(`${check.name}: ${check.message}`));
+      } else if (check.status === "warn") {
+        console.log(ui.warn(`${check.name}: ${check.message}`));
+      } else {
+        console.log(ui.error(`${check.name}: ${check.message}`));
+      }
     }
 
     // Calculate score
