@@ -49,6 +49,16 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Community tool submissions
 - [x] Hermes runtime adapter
 
+### v1.6.0 — Interactive Compilation & CLI Polish ([design doc](docs/design/v1.6-interactive-compilation.md))
+- [ ] Clarification step before compilation (3-5 questions with suggested defaults)
+- [ ] `--quick` flag to skip clarifications
+- [ ] Branded CLI output (maroon/warm accent color palette)
+- [ ] Structured sections (header box, section dividers, key-value pairs)
+- [ ] Spinner during compilation (ora)
+- [ ] Branded error display
+- [ ] `--no-color` flag for piping/CI
+- [ ] Updated all commands with consistent visual design
+
 ---
 
 ## v2.x — Hosted Compilation
