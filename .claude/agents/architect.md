@@ -2,7 +2,7 @@
 name: architect
 description: Reads design docs and existing code patterns to produce structured implementation plans. Read-only — never writes source code.
 tools: Read, Glob, Grep
-model: sonnet
+model: opus
 ---
 
 You are an implementation architect for Kairn.
