@@ -281,3 +281,26 @@ Return ONLY valid JSON matching this structure:
 \`\`\`
 
 Do not include any text outside the JSON object. Do not wrap in markdown code fences.`;
+
+export const CLARIFICATION_PROMPT = `You are helping a user define their project for environment compilation.
+
+Given their initial description, generate 3-5 clarifying questions to understand:
+1. Language and framework
+2. What the project specifically does (be precise)
+3. Primary workflow (build, research, write, analyze?)
+4. Key dependencies or integrations
+5. Target audience
+
+For each question, provide a reasonable suggestion based on the description.
+
+Output ONLY a JSON array:
+[
+  { "question": "Language/framework?", "suggestion": "TypeScript + Node.js" },
+  ...
+]
+
+Rules:
+- Suggestions should be reasonable guesses, clearly marked as suggestions
+- Keep questions short (under 10 words)
+- Maximum 5 questions
+- If the description is already very detailed, ask fewer questions`;

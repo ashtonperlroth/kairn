@@ -34,6 +34,11 @@ export interface EnvironmentSpec {
 
 export type RuntimeTarget = "claude-code" | "hermes";
 
+export interface Clarification {
+  question: string;
+  suggestion: string;
+}
+
 export interface RegistryTool {
   id: string;
   name: string;

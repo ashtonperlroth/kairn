@@ -4,9 +4,9 @@ import crypto from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { loadConfig, getEnvsDir, ensureDirs } from "../config.js";
-import { SYSTEM_PROMPT } from "./prompt.js";
+import { SYSTEM_PROMPT, CLARIFICATION_PROMPT } from "./prompt.js";
 import { loadRegistry } from "../registry/loader.js";
-import type { EnvironmentSpec, RegistryTool, KairnConfig } from "../types.js";
+import type { EnvironmentSpec, RegistryTool, KairnConfig, Clarification } from "../types.js";
 
 function buildUserMessage(intent: string, registry: RegistryTool[]): string {
   const registrySummary = registry
@@ -192,4 +192,36 @@ export async function compile(
   await fs.writeFile(envPath, JSON.stringify(spec, null, 2), "utf-8");
 
   return spec;
+}
+
+export async function generateClarifications(
+  intent: string,
+  onProgress?: (msg: string) => void
+): Promise<Clarification[]> {
+  const config = await loadConfig();
+  if (!config) {
+    throw new Error("No config found. Run `kairn init` first.");
+  }
+
+  onProgress?.("Analyzing your request...");
+
+  // Use a fast model for clarifications
+  const clarificationConfig = { ...config };
+  if (config.provider === "anthropic") {
+    clarificationConfig.model = "claude-haiku-4-5-20251001";
+  }
+
+  const response = await callLLM(clarificationConfig, CLARIFICATION_PROMPT + "\n\nUser description: " + intent);
+
+  try {
+    let cleaned = response.trim();
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+    }
+    const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+    return JSON.parse(jsonMatch[0]) as Clarification[];
+  } catch {
+    return [];
+  }
 }
