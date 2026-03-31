@@ -181,8 +181,8 @@ export async function compile(
     id: `env_${crypto.randomUUID()}`,
     intent,
     created_at: new Date().toISOString(),
-    autonomy_level: 1,
     ...parsed,
+    autonomy_level: (parsed as Partial<EnvironmentSpec>).autonomy_level ?? 1,
   };
 
   validateSpec(spec, onProgress);
