@@ -2,7 +2,7 @@
 name: qa-orchestrator
 description: Orchestrates QA by delegating to specialized testing agents (linter, e2e-tester).
 tools: Read, Bash, Glob, Grep, Agent(linter, e2e-tester)
-model: sonnet
+model: opus
 permissionMode: plan
 ---
 

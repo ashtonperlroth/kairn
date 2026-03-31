@@ -2,7 +2,7 @@
 name: implementer
 description: Implements features from design docs. Writes code, runs builds, commits.
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: sonnet
+model: opus
 permissionMode: acceptEdits
 ---
 

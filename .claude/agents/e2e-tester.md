@@ -2,7 +2,7 @@
 name: e2e-tester
 description: End-to-end QA agent that tests via browser automation with Playwright
 tools: Read, Bash, Glob
-model: sonnet
+model: opus
 mcpServers: ["playwright"]
 permissionMode: default
 ---
