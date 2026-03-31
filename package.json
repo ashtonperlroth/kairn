@@ -12,6 +12,7 @@
     "bin/",
     "dist/",
     "src/registry/tools.json",
+    "src/registry/templates/",
     "LICENSE",
     "README.md"
   ],
