@@ -149,6 +149,13 @@ At the start of every session, before doing ANY work:
 4. Summarize what you see in 2-3 lines, then proceed
 
 This saves 2-5 exploratory turns. Never ask "what files are here?" — look first.
+
+## Completion Standards
+
+Never mark a task "done" without running the Completion Verification checklist.
+Tests passing is necessary but not sufficient — also verify requirements coverage,
+state cleanliness, and review changes from the perspective of a test engineer,
+code reviewer, and the requesting user.
 \`\`\`
 
 Do not add generic filler. Every line must be specific to the user's workflow.
@@ -171,6 +178,7 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 14. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
 15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
 16. A "First Turn Protocol" section in CLAUDE.md (orient before working: pwd, ls, git status, check relevant runtimes, read task files)
+17. A "Completion Standards" section in CLAUDE.md (never mark done without verifying: requirements met, tests passing, no debug artifacts, reviewed from 3 perspectives)
 
 ## Shell-Integrated Commands
 
@@ -288,7 +296,7 @@ Merge this into the settings hooks alongside the PreToolUse and PostToolUse hook
 - \`/project:status\` command (live git status, recent commits, SPRINT.md overview using ! prefix)
 - \`/project:fix\` command (takes $ARGUMENTS as issue number, plans fix, implements, tests, commits)
 - \`/project:sprint\` command (define acceptance criteria before coding, writes to docs/SPRINT.md)
-- \`/project:develop\` command (full development pipeline — orchestrates @architect → @planner → @implementer → @verifier → @fixer → @grill → @doc-updater through spec, plan, TDD implement, review, and doc update phases)
+- \`/project:develop\` command (full development pipeline — orchestrates @architect → @planner → @implementer → @verifier → @fixer → @grill → @doc-updater through spec, plan, TDD implement, review, and doc update phases). MUST include a Phase 7 "Completion Gate" that runs a Completion Verification checklist before marking the feature done: re-read original requirements, confirm each is met with evidence, run test suite + lint/typecheck, review git diff for unexpected changes or debug artifacts, answer 3 perspective questions (test engineer, code reviewer, requesting user). If ANY check fails, loop back to fix before completing.
 - A TDD skill using the 3-phase isolation pattern (RED → GREEN → REFACTOR):
   - RED: Write failing test only. Verify it FAILS.
   - GREEN: Write MINIMUM code to pass. Nothing extra.
@@ -457,6 +465,13 @@ At the start of every session, before doing ANY work:
 4. Summarize what you see in 2-3 lines, then proceed
 
 This saves 2-5 exploratory turns. Never ask "what files are here?" — look first.
+
+## Completion Standards
+
+Never mark a task "done" without running the Completion Verification checklist.
+Tests passing is necessary but not sufficient — also verify requirements coverage,
+state cleanliness, and review changes from the perspective of a test engineer,
+code reviewer, and the requesting user.
 \`\`\`
 
 Do not add generic filler. Every line must be specific to the user's workflow.
@@ -479,6 +494,7 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 14. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
 15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
 16. A "First Turn Protocol" section in CLAUDE.md (orient before working: pwd, ls, git status, check relevant runtimes, read task files)
+17. A "Completion Standards" section in CLAUDE.md (never mark done without verifying: requirements met, tests passing, no debug artifacts, reviewed from 3 perspectives)
 
 ## Tool Selection Rules
 

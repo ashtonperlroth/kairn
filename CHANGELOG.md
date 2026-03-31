@@ -7,6 +7,24 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.14.0] — 2026-03-31
+
+### Added
+- **Completion Verification checklist** injected into all orchestrating commands — forces self-review before marking any task complete, catching premature exits
+- **Phase 7 "Completion Gate"** added to `/project:develop` — LLM-generated develop command now includes requirements check, state check, and 3-perspective check (test engineer, code reviewer, requesting user)
+- **`/project:loop` exit condition upgraded** — tests passing is necessary but not sufficient; Completion Verification checklist must also clear before exiting the loop
+- **`/project:auto` verification gate** — requires Completion Verification before PR creation; checklist results included in PR description
+- **`/project:autopilot` stop condition** — Completion Verification failure after 2 fix attempts triggers autopilot stop
+- **"Completion Standards" section** in generated CLAUDE.md — behavioral mandate that tests passing alone is not enough to mark done
+- **Three-perspective check** in all verification gates: test engineer (failure modes), code reviewer (PR flags), requesting user (problem solved?)
+
+### Changed
+- **`/project:loop`** — Phase 6 is now "Completion Gate", Phase 7 is "Ship" (was Phase 6)
+- **`/project:auto`** — Phase 5 is now "Completion Gate", Phase 6 is "PR", Phase 7 is "Next"
+- **`/project:autopilot`** — loop includes verification step before PR; stop conditions expanded
+
+---
+
 ## [1.13.0] — 2026-03-31
 
 ### Added

@@ -130,15 +130,15 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] `.env` key masking in bootstrap output (show `KEY=***`, never values)
 - [x] Saves 2-5 wasted exploration turns per session
 
-### v1.14.0 — Completion Verification ([design doc](docs/design/v1.14-completion-verification.md))
-- [ ] Completion Verification checklist injected into all orchestrating commands
-- [ ] Phase 7 "Completion Gate" added to `/project:develop`
-- [ ] `/project:loop` exit condition upgraded: tests passing + verification passing
-- [ ] `/project:auto` requires verification before PR creation
-- [ ] `/project:autopilot` includes verification in stop condition evaluation
-- [ ] Project-type-aware verify commands (test suite + lint/typecheck auto-detected)
-- [ ] Three-perspective check: test engineer, code reviewer, requesting user
-- [ ] "Completion Standards" principle in CLAUDE.md
+### v1.14.0 ✅ — Completion Verification ([design doc](docs/design/v1.14-completion-verification.md))
+- [x] Completion Verification checklist injected into all orchestrating commands
+- [x] Phase 7 "Completion Gate" added to `/project:develop`
+- [x] `/project:loop` exit condition upgraded: tests passing + verification passing
+- [x] `/project:auto` requires verification before PR creation
+- [x] `/project:autopilot` includes verification in stop condition evaluation
+- [x] Project-type-aware verify commands (test suite + lint/typecheck auto-detected)
+- [x] Three-perspective check: test engineer, code reviewer, requesting user
+- [x] "Completion Standards" principle in CLAUDE.md
 
 ---
 

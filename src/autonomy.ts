@@ -187,7 +187,29 @@ If confidence is LOW or MEDIUM, fix issues and re-verify.
 Run /project:grill for adversarial review.
 Fix any BLOCKERs.
 
-## Phase 6: SHIP
+## Phase 6: COMPLETION GATE
+
+Before shipping, run the Completion Verification checklist:
+
+### Requirements Check
+- [ ] Re-read the ORIGINAL task description (not your interpretation)
+- [ ] Each explicit requirement is met with evidence (test output, diff)
+- [ ] Each implicit requirement (error handling, types, tests) is addressed
+
+### State Check
+- [ ] Test suite passes
+- [ ] Lint/typecheck passes
+- [ ] \`git diff --stat\` — every changed file is intentional
+- [ ] No debug artifacts (console.log, TODO, commented-out code, temp files)
+
+### Perspective Check (1 sentence each)
+- **Test engineer:** Most likely production failure mode?
+- **Code reviewer:** What would I flag in review?
+- **Requesting user:** Does this solve my actual problem?
+
+ALL pass → proceed to ship. ANY fail → fix first, then re-verify.
+
+## Phase 7: SHIP
 Run /project:commit.
 Report what was built and what's next from docs/SPRINT.md.
 
@@ -272,11 +294,26 @@ Run verification:
 - Run functional tests
 - If NEEDS FIXES: fix and re-verify
 
-## Phase 5: PR
-Create a pull request:
-  gh pr create --title "feat: {name}" --body "{spec + QA report}"
+## Phase 5: COMPLETION GATE
 
-## Phase 6: NEXT
+Before creating a PR, run the Completion Verification checklist:
+- [ ] Re-read the ORIGINAL spec from docs/SPRINT.md
+- [ ] Each requirement is met with evidence (test output, diff)
+- [ ] Test suite + lint/typecheck pass
+- [ ] \`git diff --stat\` — every changed file is intentional, no debug artifacts
+- **Test engineer:** Most likely production failure mode?
+- **Code reviewer:** What would I flag in review?
+- **Requesting user:** Does this solve my actual problem?
+
+ALL pass → proceed to PR. ANY fail → fix first, then re-verify.
+
+Include the checklist results in the PR description.
+
+## Phase 6: PR
+Create a pull request:
+  gh pr create --title "feat: {name}" --body "{spec + QA report + verification checklist}"
+
+## Phase 7: NEXT
 Report:
   "PR #{N} ready for review: {link}
    Next priority from SPRINT.md: {next task}
@@ -303,13 +340,19 @@ Repeat until max features reached or stopped:
 2. Create worktree + branch
 3. Implement the feature
 4. Run verification (build, test, lint)
-5. Open PR via gh
-6. Report status
-7. Move to next feature
+5. Run Completion Verification checklist:
+   - Requirements met with evidence
+   - Tests + lint/typecheck pass
+   - No debug artifacts or unexpected file changes
+   - 3-perspective check (test engineer, reviewer, user)
+6. Open PR via gh (include verification results in PR body)
+7. Report status
+8. Move to next feature
 
 ## Stop Conditions
 - Max 5 features per autopilot session
 - Any BLOCKER from verification
+- Completion Verification checklist fails after 2 fix attempts
 - Build failure that can't be resolved in 3 attempts
 - User presses Escape`;
 
