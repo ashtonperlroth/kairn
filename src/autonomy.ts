@@ -27,10 +27,10 @@ Read .claude/commands/ and list each one with a one-line description.
 Group them by workflow phase:
 
   PLAN:    /project:spec, /project:sprint, /project:plan
-  BUILD:   (just start coding — Claude reads CLAUDE.md automatically)
+  BUILD:   /project:develop (full pipeline), or just start coding
   VERIFY:  /project:prove, /project:grill, /project:test
   SHIP:    /project:commit, /project:review
-  MANAGE:  /project:status, /project:tasks, /project:reset
+  MANAGE:  /project:status, /project:reset
 
 ## Your Agents
 Read .claude/agents/ and explain each one with how to invoke it.
@@ -100,7 +100,7 @@ const LOOP_COMMAND_CODE = `# Development Loop
 Run an assisted development cycle for the next feature.
 
 ## Phase 1: SPEC
-Review docs/TODO.md and docs/SPRINT.md.
+Review docs/SPRINT.md.
 If no sprint is defined, run /project:spec to interview the user.
 Wait for user approval of the spec.
 
@@ -125,7 +125,7 @@ Fix any BLOCKERs.
 
 ## Phase 6: SHIP
 Run /project:commit.
-Report what was built and what's next from docs/TODO.md.
+Report what was built and what's next from docs/SPRINT.md.
 
 Then ask: "Continue to next feature?"
 If yes, return to Phase 1.`;
@@ -135,7 +135,7 @@ const LOOP_COMMAND_RESEARCH = `# Research Loop
 Run an assisted research cycle.
 
 ## Phase 1: QUESTION
-Review docs/TODO.md for the next research question.
+Review docs/SPRINT.md for the next research question.
 If none, ask the user what to investigate.
 
 ## Phase 2: RESEARCH
@@ -151,7 +151,7 @@ Present the summary. Ask the user for feedback.
 Revise based on feedback.
 
 ## Phase 5: NEXT
-Update docs/TODO.md — mark question as done, identify follow-ups.
+Update docs/SPRINT.md — mark question as done, identify follow-ups.
 Ask: "Continue to next question?"`;
 
 const PM_AGENT = `---
@@ -163,7 +163,7 @@ model: opus
 You are a project manager for this codebase.
 
 Your responsibilities:
-1. Maintain docs/TODO.md — keep it prioritized and current
+1. Maintain docs/SPRINT.md — keep it prioritized and current
 2. Write specs to docs/SPRINT.md when asked
 3. Review completed work and suggest what's next
 4. Track decisions in docs/DECISIONS.md
@@ -185,7 +185,7 @@ PM-driven development loop with PR delivery.
 
 ## Phase 1: PLAN (@pm)
 Use @pm to:
-- Read docs/TODO.md and docs/SPRINT.md
+- Read docs/SPRINT.md
 - Select the highest-priority unfinished task
 - Write a spec to docs/SPRINT.md
 - Present the spec for approval
@@ -215,7 +215,7 @@ Create a pull request:
 ## Phase 6: NEXT
 Report:
   "PR #{N} ready for review: {link}
-   Next priority from TODO.md: {next task}
+   Next priority from SPRINT.md: {next task}
    Continue? (y/n)"
 
 If yes, return to Phase 1 with next task.`;
@@ -235,7 +235,7 @@ PRs are opened automatically. You review when ready.
 
 ## The Loop
 Repeat until max features reached or stopped:
-1. @pm selects next priority from docs/TODO.md
+1. @pm selects next priority from docs/SPRINT.md
 2. Create worktree + branch
 3. Implement the feature
 4. Run verification (build, test, lint)

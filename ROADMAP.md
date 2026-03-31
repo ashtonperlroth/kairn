@@ -108,12 +108,12 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Split SYSTEM_PROMPT into focused SKELETON_PROMPT and HARNESS_PROMPT
 - [x] Fix: complex prompts (biotech, k8s, ML, music) no longer crash with JSON truncation
 
-### v1.11.0 — Claude Code Power Patterns ([design doc](docs/design/v1.11-claude-code-power-patterns.md))
-- [ ] `/project:develop` — full development pipeline orchestrating subagents for spec, plan, implement (TDD), verify, review, and automated doc updates. Replaces monolithic `/ship`.
-- [ ] Automated and disciplined documentation: `TODO.md` removed; `docs/SPRINT.md` for living spec/plan; `@doc-updater` agent for `DECISIONS.md` and `LEARNINGS.md`.
-- [ ] New agents: `@architect`, `@planner`, `@implementer`, `@fixer`, `@doc-updater` (orchestrated by `/develop`).
-- [ ] Integration of Claude Code power patterns: `/project:ultraplan`, `/project:security`, `/project:batch`, `/project:review`, `/project:compact` (now as building blocks for `/develop`).
-- [ ] Engineering Standards, Tool Usage Policy, Git Safety, Coordinator Precision, Deferred Tool Discovery principles embedded in CLAUDE.md.
+### v1.11.0 ✅ — Claude Code Power Patterns ([design doc](docs/design/v1.11-claude-code-power-patterns.md))
+- [x] `/project:develop` — full development pipeline orchestrating subagents for spec, plan, implement (TDD), verify, review, and automated doc updates. Replaces monolithic `/ship`.
+- [x] Automated and disciplined documentation: `TODO.md` removed; `docs/SPRINT.md` for living spec/plan; `@doc-updater` agent for `DECISIONS.md` and `LEARNINGS.md`.
+- [x] New agents: `@architect`, `@planner`, `@implementer`, `@fixer`, `@doc-updater` (orchestrated by `/develop`).
+- [x] Integration of Claude Code power patterns: `/project:ultraplan`, `/project:security`, `/project:batch`, `/project:review`, `/project:compact` (now as building blocks for `/develop`).
+- [x] Engineering Standards, Tool Usage Policy, Git Safety, Coordinator Precision, Deferred Tool Discovery principles embedded in CLAUDE.md.
 
 ### v1.12.0 — Compilation UX ([design doc](docs/design/v1.12-compilation-ux.md))
 - [ ] Phase-by-phase progress display (registry → Pass 1 → Pass 2 → Pass 3 with ✔/◐/⚠ indicators)

@@ -5,7 +5,7 @@ import { applyAutonomyLevel } from "../autonomy.js";
 
 const STATUS_LINE = {
   command:
-    "printf '%s | %s tasks' \"$(git branch --show-current 2>/dev/null || echo 'no-git')\" \"$(grep -c '\\- \\[ \\]' docs/TODO.md 2>/dev/null || echo 0)\"",
+    "printf '%s | %s tasks' \"$(git branch --show-current 2>/dev/null || echo 'no-git')\" \"$(grep -c '\\- \\[ \\]' docs/SPRINT.md 2>/dev/null || echo 0)\"",
 };
 
 function isCodeProject(spec: EnvironmentSpec): boolean {

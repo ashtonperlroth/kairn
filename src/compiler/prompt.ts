@@ -25,7 +25,7 @@ You must output a JSON object matching the SkeletonSpec schema.
 
 - MCP servers: maximum 6. Prefer fewer.
 - Skills: maximum 3. Only include directly relevant ones.
-- Agents: maximum 3. QA pipeline + one specialist.
+- Agents: maximum 5. Orchestration pipeline (/develop) agents.
 - Hooks: maximum 4 (auto-format, block-destructive, PostCompact, plus one contextual).
 
 If the workflow doesn't clearly need a tool, DO NOT include it.
@@ -66,12 +66,12 @@ You must generate all harness content: CLAUDE.md, commands, rules, agents, skill
 ## Core Principles
 
 - **Workflow-specific, not generic.** Every instruction, command, and rule must relate to the user's actual workflow.
-- **Concise CLAUDE.md.** Under 120 lines. No generic text like "be helpful." Include build/test commands, reference docs/ and skills/.
+- **Concise CLAUDE.md.** Under 150 lines. No generic text like "be helpful." Include build/test commands, reference docs/ and skills/.
 - **Security by default.** Always include deny rules for destructive commands and secret file access.
 
 ## CLAUDE.md Template (mandatory structure)
 
-The \`claude_md\` field MUST follow this exact structure (max 120 lines):
+The \`claude_md\` field MUST follow this exact structure (max 150 lines):
 
 \`\`\`
 # {Project Name}
@@ -120,6 +120,25 @@ Use subagents for deep investigation to keep main context clean.
 - Prefer small, focused commits (one feature or fix per commit)
 - Use conventional commits: feat:, fix:, docs:, refactor:, test:
 - Target < 200 lines per PR when possible
+
+## Engineering Standards
+- Lead with answers over reasoning. Be concise.
+- Use absolute file paths in all references.
+- No filler, no inner monologue, no time estimates.
+- Produce load-bearing code — every line of output should be actionable.
+
+## Tool Usage Policy
+- Prefer Edit tool over sed/awk for file modifications
+- Prefer Grep tool over rg for searching
+- Prefer Read tool over cat for file reading
+- Reserve Bash for: builds, installs, git, network, processes
+- Read and understand existing code before modifying
+- Delete unused code completely — no compatibility shims
+
+## Code Philosophy
+- Do not create abstractions for one-time operations
+- Complete the task fully — don't gold-plate, but don't leave it half-done
+- Prefer editing existing files over creating new ones
 \`\`\`
 
 Do not add generic filler. Every line must be specific to the user's workflow.
@@ -128,20 +147,19 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 
 1. A concise, workflow-specific \`claude_md\` (the CLAUDE.md content)
 2. A \`/project:help\` command that explains the environment
-3. A \`/project:tasks\` command for task management via TODO.md
-4. A \`docs/TODO.md\` file for continuity
-5. A \`docs/DECISIONS.md\` file for architectural decisions
-6. A \`docs/LEARNINGS.md\` file for non-obvious discoveries
-7. A \`rules/continuity.md\` rule encouraging updates to DECISIONS.md and LEARNINGS.md
-8. A \`rules/security.md\` rule with essential security instructions
-9. settings.json with deny rules for \`rm -rf\`, \`curl|sh\`, reading \`.env\` and \`secrets/\`
-10. A \`/project:status\` command for code projects (uses ! for live git/test output)
-11. A \`/project:fix\` command for code projects (uses $ARGUMENTS for issue number)
-12. A \`docs/SPRINT.md\` file for sprint contracts (acceptance criteria, verification steps)
-13. A "Verification" section in CLAUDE.md with concrete verify commands for the project
-14. A "Known Gotchas" section in CLAUDE.md (starts empty, grows with corrections)
-15. A "Debugging" section in CLAUDE.md (2 lines: paste raw errors, use subagents)
-16. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
+3. A \`docs/DECISIONS.md\` file for architectural decisions
+4. A \`docs/LEARNINGS.md\` file for non-obvious discoveries
+5. A \`rules/continuity.md\` rule encouraging updates to DECISIONS.md and LEARNINGS.md
+6. A \`rules/security.md\` rule with essential security instructions
+7. settings.json with deny rules for \`rm -rf\`, \`curl|sh\`, reading \`.env\` and \`secrets/\`
+8. A \`/project:status\` command for code projects (uses ! for live git/SPRINT.md output)
+9. A \`/project:fix\` command for code projects (uses $ARGUMENTS for issue number)
+10. A \`docs/SPRINT.md\` file as the living spec/plan (replaces TODO.md — acceptance criteria, verification steps)
+11. A "Verification" section in CLAUDE.md with concrete verify commands for the project
+12. A "Known Gotchas" section in CLAUDE.md (starts empty, grows with corrections)
+13. A "Debugging" section in CLAUDE.md (2 lines: paste raw errors, use subagents)
+14. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
+15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
 
 ## Shell-Integrated Commands
 
@@ -256,9 +274,10 @@ Merge this into the settings hooks alongside the PreToolUse and PostToolUse hook
 - \`/project:review\` command (review changes)
 - \`/project:test\` command (run and fix tests)
 - \`/project:commit\` command (conventional commits)
-- \`/project:status\` command (live git status, recent commits, TODO overview using ! prefix)
+- \`/project:status\` command (live git status, recent commits, SPRINT.md overview using ! prefix)
 - \`/project:fix\` command (takes $ARGUMENTS as issue number, plans fix, implements, tests, commits)
 - \`/project:sprint\` command (define acceptance criteria before coding, writes to docs/SPRINT.md)
+- \`/project:develop\` command (full development pipeline — orchestrates @architect → @planner → @implementer → @verifier → @fixer → @grill → @doc-updater through spec, plan, TDD implement, review, and doc update phases)
 - A TDD skill using the 3-phase isolation pattern (RED → GREEN → REFACTOR):
   - RED: Write failing test only. Verify it FAILS.
   - GREEN: Write MINIMUM code to pass. Nothing extra.
@@ -268,6 +287,12 @@ Merge this into the settings hooks alongside the PreToolUse and PostToolUse hook
   - \`@qa-orchestrator\` (sonnet) — delegates to linter and e2e-tester, compiles QA report
   - \`@linter\` (haiku) — runs formatters, linters, security scanners
   - \`@e2e-tester\` (sonnet, only when Playwright is in tools) — browser-based QA via Playwright
+- Development pipeline agents (used by /project:develop):
+  - \`@architect\` (opus) — conducts spec interview with user, writes confirmed spec to docs/SPRINT.md
+  - \`@planner\` (opus) — reads spec and codebase, creates step-by-step implementation plan in docs/PLAN.md
+  - \`@implementer\` (sonnet) — TDD-focused implementation, writes failing tests then minimum code to pass
+  - \`@fixer\` (sonnet) — targeted bug fixing from verifier/review feedback
+  - \`@doc-updater\` (haiku) — extracts decisions and learnings from completed work, updates docs/DECISIONS.md and docs/LEARNINGS.md
 - \`/project:spec\` command (interview-based spec creation — asks 5-8 questions one at a time, writes structured spec to docs/SPRINT.md, does NOT start coding until confirmed)
 - \`/project:prove\` command (runs tests, shows git diff vs main, rates confidence HIGH/MEDIUM/LOW with evidence)
 - \`/project:grill\` command (adversarial code review — challenges each change with "why this approach?", "what if X input?", rates BLOCKER/SHOULD-FIX/NITPICK, blocks until BLOCKERs resolved)
@@ -315,12 +340,12 @@ Return ONLY valid JSON matching this structure:
 
 \`\`\`json
 {
-  "claude_md": "Full CLAUDE.md content (under 120 lines)",
-  "commands": { "help": "...", "tasks": "...", "status": "...", "fix": "...", "sprint": "...", "spec": "...", "prove": "...", "grill": "...", "reset": "..." },
+  "claude_md": "Full CLAUDE.md content (under 150 lines)",
+  "commands": { "help": "...", "develop": "...", "status": "...", "fix": "...", "sprint": "...", "spec": "...", "prove": "...", "grill": "...", "reset": "..." },
   "rules": { "continuity": "...", "security": "..." },
-  "agents": { "qa-orchestrator": "...", "linter": "...", "e2e-tester": "..." },
+  "agents": { "architect": "...", "planner": "...", "implementer": "...", "fixer": "...", "doc-updater": "...", "qa-orchestrator": "...", "linter": "...", "e2e-tester": "..." },
   "skills": { "skill-name/SKILL": "..." },
-  "docs": { "TODO": "...", "DECISIONS": "...", "LEARNINGS": "...", "SPRINT": "..." }
+  "docs": { "DECISIONS": "...", "LEARNINGS": "...", "SPRINT": "..." }
 }
 \`\`\`
 
@@ -338,12 +363,12 @@ You must output a JSON object matching the EnvironmentSpec schema.
 
 - **Minimalism over completeness.** Fewer, well-chosen tools beat many generic ones. Each MCP server costs 500-2000 context tokens.
 - **Workflow-specific, not generic.** Every instruction, command, and rule must relate to the user's actual workflow.
-- **Concise CLAUDE.md.** Under 120 lines. No generic text like "be helpful." Include build/test commands, reference docs/ and skills/.
+- **Concise CLAUDE.md.** Under 150 lines. No generic text like "be helpful." Include build/test commands, reference docs/ and skills/.
 - **Security by default.** Always include deny rules for destructive commands and secret file access.
 
 ## CLAUDE.md Template (mandatory structure)
 
-The \`claude_md\` field MUST follow this exact structure (max 120 lines):
+The \`claude_md\` field MUST follow this exact structure (max 150 lines):
 
 \`\`\`
 # {Project Name}
@@ -392,6 +417,25 @@ Use subagents for deep investigation to keep main context clean.
 - Prefer small, focused commits (one feature or fix per commit)
 - Use conventional commits: feat:, fix:, docs:, refactor:, test:
 - Target < 200 lines per PR when possible
+
+## Engineering Standards
+- Lead with answers over reasoning. Be concise.
+- Use absolute file paths in all references.
+- No filler, no inner monologue, no time estimates.
+- Produce load-bearing code — every line of output should be actionable.
+
+## Tool Usage Policy
+- Prefer Edit tool over sed/awk for file modifications
+- Prefer Grep tool over rg for searching
+- Prefer Read tool over cat for file reading
+- Reserve Bash for: builds, installs, git, network, processes
+- Read and understand existing code before modifying
+- Delete unused code completely — no compatibility shims
+
+## Code Philosophy
+- Do not create abstractions for one-time operations
+- Complete the task fully — don't gold-plate, but don't leave it half-done
+- Prefer editing existing files over creating new ones
 \`\`\`
 
 Do not add generic filler. Every line must be specific to the user's workflow.
@@ -400,20 +444,19 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 
 1. A concise, workflow-specific \`claude_md\` (the CLAUDE.md content)
 2. A \`/project:help\` command that explains the environment
-3. A \`/project:tasks\` command for task management via TODO.md
-4. A \`docs/TODO.md\` file for continuity
-5. A \`docs/DECISIONS.md\` file for architectural decisions
-6. A \`docs/LEARNINGS.md\` file for non-obvious discoveries
-7. A \`rules/continuity.md\` rule encouraging updates to DECISIONS.md and LEARNINGS.md
-8. A \`rules/security.md\` rule with essential security instructions
-9. settings.json with deny rules for \`rm -rf\`, \`curl|sh\`, reading \`.env\` and \`secrets/\`
-10. A \`/project:status\` command for code projects (uses ! for live git/test output)
-11. A \`/project:fix\` command for code projects (uses $ARGUMENTS for issue number)
-12. A \`docs/SPRINT.md\` file for sprint contracts (acceptance criteria, verification steps)
-13. A "Verification" section in CLAUDE.md with concrete verify commands for the project
-14. A "Known Gotchas" section in CLAUDE.md (starts empty, grows with corrections)
-15. A "Debugging" section in CLAUDE.md (2 lines: paste raw errors, use subagents)
-16. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
+3. A \`docs/DECISIONS.md\` file for architectural decisions
+4. A \`docs/LEARNINGS.md\` file for non-obvious discoveries
+5. A \`rules/continuity.md\` rule encouraging updates to DECISIONS.md and LEARNINGS.md
+6. A \`rules/security.md\` rule with essential security instructions
+7. settings.json with deny rules for \`rm -rf\`, \`curl|sh\`, reading \`.env\` and \`secrets/\`
+8. A \`/project:status\` command for code projects (uses ! for live git/SPRINT.md output)
+9. A \`/project:fix\` command for code projects (uses $ARGUMENTS for issue number)
+10. A \`docs/SPRINT.md\` file as the living spec/plan (replaces TODO.md — acceptance criteria, verification steps)
+11. A "Verification" section in CLAUDE.md with concrete verify commands for the project
+12. A "Known Gotchas" section in CLAUDE.md (starts empty, grows with corrections)
+13. A "Debugging" section in CLAUDE.md (2 lines: paste raw errors, use subagents)
+14. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
+15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
 
 ## Tool Selection Rules
 
@@ -427,10 +470,10 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 ## Context Budget (STRICT)
 
 - MCP servers: maximum 6. Prefer fewer.
-- CLAUDE.md: maximum 120 lines.
+- CLAUDE.md: maximum 150 lines.
 - Rules: maximum 5 files, each under 20 lines.
 - Skills: maximum 3. Only include directly relevant ones.
-- Agents: maximum 3. QA pipeline + one specialist.
+- Agents: maximum 5. Orchestration pipeline (/develop) agents.
 - Commands: no limit (loaded on demand, zero context cost).
 - Hooks: maximum 4 (auto-format, block-destructive, PostCompact, plus one contextual).
 
@@ -449,7 +492,7 @@ Return ONLY valid JSON matching this structure:
     { "tool_id": "id-from-registry", "reason": "why this tool fits" }
   ],
   "harness": {
-    "claude_md": "The full CLAUDE.md content (under 120 lines)",
+    "claude_md": "The full CLAUDE.md content (under 150 lines)",
     "settings": {
       "permissions": {
         "allow": ["Bash(npm run *)", "Read", "Write", "Edit"],
@@ -461,7 +504,7 @@ Return ONLY valid JSON matching this structure:
     },
     "commands": {
       "help": "markdown content for /project:help",
-      "tasks": "markdown content for /project:tasks"
+      "develop": "markdown content for /project:develop"
     },
     "rules": {
       "continuity": "markdown content for continuity rule",
@@ -471,13 +514,16 @@ Return ONLY valid JSON matching this structure:
       "skill-name/SKILL": "markdown content with YAML frontmatter"
     },
     "agents": {
-      "qa-orchestrator": "agent markdown with YAML frontmatter"
+      "architect": "agent markdown with YAML frontmatter",
+      "planner": "agent markdown with YAML frontmatter",
+      "implementer": "agent markdown with YAML frontmatter",
+      "fixer": "agent markdown with YAML frontmatter",
+      "doc-updater": "agent markdown with YAML frontmatter"
     },
     "docs": {
-      "TODO": "# TODO\\n\\n- [ ] First task",
       "DECISIONS": "# Decisions\\n\\nArchitectural decisions.",
       "LEARNINGS": "# Learnings\\n\\nNon-obvious discoveries.",
-      "SPRINT": "# Sprint Contract\\n\\nDefine acceptance criteria."
+      "SPRINT": "# Sprint\\n\\nLiving spec and plan."
     }
   }
 }

@@ -293,7 +293,7 @@ function validateSpec(spec: EnvironmentSpec, onProgress?: (msg: string) => void)
   if (spec.harness.claude_md) {
     const lines = spec.harness.claude_md.split('\n').length;
     if (lines > 150) {
-      warnings.push(`CLAUDE.md is ${lines} lines (recommended: ≤100)`);
+      warnings.push(`CLAUDE.md is ${lines} lines (recommended: ≤150)`);
     }
   }
 

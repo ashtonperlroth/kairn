@@ -7,6 +7,28 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.11.0] — 2026-03-31
+
+### Added
+- **`/project:develop` command** — full development pipeline orchestrating subagents through spec → plan → TDD implement → verify → review → doc update phases; replaces monolithic `/ship` pattern
+- **5 new agents** for code projects: `@architect` (opus — spec interview), `@planner` (opus — implementation planning), `@implementer` (sonnet — TDD-focused coding), `@fixer` (sonnet — targeted bug fixing), `@doc-updater` (haiku — automated DECISIONS.md and LEARNINGS.md updates)
+- **Engineering Standards** section in generated CLAUDE.md — concise output rules, load-bearing code emphasis
+- **Tool Usage Policy** section in generated CLAUDE.md — prefer dedicated tools over shell equivalents
+- **Code Philosophy** section in generated CLAUDE.md — no premature abstractions, complete tasks fully
+
+### Changed
+- **`docs/SPRINT.md` replaces `docs/TODO.md`** — SPRINT.md is now the living spec/plan for short-term work; TODO.md is no longer generated
+- **CLAUDE.md context budget** increased from 120 to 150 lines to accommodate new engineering sections
+- **Agent budget** increased from 3 to 5 to support the `/develop` orchestration pipeline
+- **Autonomy module** — all commands and agents now reference `docs/SPRINT.md` instead of `docs/TODO.md`
+- **Status line** — task count now reads from `docs/SPRINT.md` instead of `docs/TODO.md`
+
+### Removed
+- `docs/TODO.md` — no longer generated in new environments (use `docs/SPRINT.md` instead)
+- `/project:tasks` — removed from default command set (task tracking consolidated into SPRINT.md)
+
+---
+
 ## [1.10.1] — 2026-03-31
 
 ### Changed
