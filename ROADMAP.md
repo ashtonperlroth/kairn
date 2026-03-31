@@ -34,13 +34,13 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Expanded registry (28 tools: Sentry, Vercel, Docker, SQLite, Chrome DevTools, Stripe, Memory, E2B, GPT Researcher, Jira)
 - [x] Improved TDD skill with 3-phase isolation pattern
 
-### v1.4.0 — Advanced Patterns ([design doc](docs/design/v1.4-advanced-patterns.md))
-- [ ] Sprint contract pattern (`/project:sprint` — define acceptance criteria)
-- [ ] Evaluator/tester agent (Playwright-based QA)
-- [ ] PostCompact hook for context re-injection
-- [ ] Context budget enforcement in compilation prompt
-- [ ] `kairn optimize --diff` — preview changes before writing
-- [ ] `kairn doctor` — validate environments against Claude Code spec
+### v1.4.0 ✅ — Advanced Patterns ([design doc](docs/design/v1.4-advanced-patterns.md))
+- [x] Sprint contract pattern (`/project:sprint` — define acceptance criteria)
+- [x] Evaluator/tester agent (Playwright-based QA)
+- [x] PostCompact hook for context re-injection
+- [x] Context budget enforcement in compilation prompt
+- [x] `kairn optimize --diff` — preview changes before writing
+- [x] `kairn doctor` — validate environments against Claude Code spec
 
 ### v1.5.0 — Templates & Registry
 - [ ] Template gallery — pre-built environments (Next.js, API, Research, Content)
