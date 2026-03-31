@@ -122,9 +122,45 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Retry visibility (⚠ warning when Pass 2 retries in concise mode)
 - [x] Final summary line ("Environment compiled in 37s")
 
+### v1.13.0 ✅ — Environment Bootstrapping ([design doc](docs/design/v1.13-environment-bootstrapping.md))
+- [x] "First Turn Protocol" section in every generated CLAUDE.md (agent self-orients before working)
+- [x] `/project:bootstrap` command for Level 2+ (gather runtime, project files, git state in one shot)
+- [x] SessionStart bootstrap hook for Level 3-4 (automatic environment snapshot injection)
+- [x] Project-type-aware runtime checks (Node, Python, Rust, Go detected from CLAUDE.md tech stack)
+- [x] `.env` key masking in bootstrap output (show `KEY=***`, never values)
+- [x] Saves 2-5 wasted exploration turns per session
+
+### v1.14.0 — Completion Verification ([design doc](docs/design/v1.14-completion-verification.md))
+- [ ] Completion Verification checklist injected into all orchestrating commands
+- [ ] Phase 7 "Completion Gate" added to `/project:develop`
+- [ ] `/project:loop` exit condition upgraded: tests passing + verification passing
+- [ ] `/project:auto` requires verification before PR creation
+- [ ] `/project:autopilot` includes verification in stop condition evaluation
+- [ ] Project-type-aware verify commands (test suite + lint/typecheck auto-detected)
+- [ ] Three-perspective check: test engineer, code reviewer, requesting user
+- [ ] "Completion Standards" principle in CLAUDE.md
+
 ---
 
-## v2.x — Hosted Compilation
+## v2.x — Kairn Evolve (Automated Harness Optimization)
+
+> Inspired by [Meta-Harness](https://yoonholee.com/meta-harness/) (Lee et al., Stanford IRIS Lab, 2026). Instead of just generating environments, Kairn evolves them — running agents on real tasks, logging full traces, and using causal reasoning to improve the harness iteratively.
+
+- [ ] `kairn evolve` — outer-loop optimizer for Kairn environments
+- [ ] Task definition format (user provides benchmark tasks or real work samples)
+- [ ] Full trace logging (execution logs, tool calls, errors, scores → filesystem)
+- [ ] Agentic proposer reads full trace filesystem to diagnose failure modes
+- [ ] Iterative harness mutation (CLAUDE.md, commands, rules, agents, settings)
+- [ ] Evaluation pipeline (run evolved harness on held-out tasks, compare scores)
+- [ ] Counterfactual diagnosis ("this change helped, this one hurt — why?")
+- [ ] `kairn evolve --iterations N` — control search budget
+- [ ] `kairn evolve --baseline` — snapshot current environment as the control
+- [ ] `kairn evolve --report` — human-readable summary of what changed and why
+- [ ] Support for custom scoring functions (pass/fail, rubric, LLM-as-judge)
+
+---
+
+## v3.x — Hosted Compilation
 
 - [ ] Free hosted compilation endpoint — no local LLM key needed
 - [ ] Web dashboard for environment management
@@ -133,7 +169,7 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 
 ---
 
-## v3.x — Integrated Payments
+## v4.x — Integrated Payments
 
 - [ ] Zero-friction tool provisioning via Stripe MPP
 - [ ] Usage tracking and spending controls
@@ -141,7 +177,7 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 
 ---
 
-## v4.x — Learning System
+## v5.x — Learning System
 
 - [ ] Automated tool discovery (GitHub, npm, community)
 - [ ] Usage-based quality scoring
@@ -156,3 +192,4 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 3. **Local-first.** Everything works offline. Hosted features are optional.
 4. **Transparent.** Users can inspect every generated file.
 5. **Security by default.** Every environment includes deny rules and security guidance.
+6. **Self-improving.** Environments should get better with use, not just at generation time.

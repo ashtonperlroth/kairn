@@ -93,6 +93,70 @@ Type \`/project:help\` in Claude Code for a quick reference.
 `;
 }
 
+// ── Bootstrap (Level 2+: command, Level 3+: SessionStart hook) ─
+
+const BOOTSTRAP_COMMAND = `# Environment Snapshot
+
+Run this command at the start of any session to gather runtime context.
+This saves 2-5 exploratory turns.
+
+1. Run the following compound command and read the output:
+   \`\`\`bash
+   echo '=== WORKING DIRECTORY ===' && pwd && \\
+   echo '=== PROJECT FILES ===' && ls -la && \\
+   echo '=== GIT STATUS ===' && (git status --short 2>/dev/null || echo 'not a git repo') && \\
+   echo '=== LANGUAGES ===' && \\
+   (node --version 2>&1 || true) && \\
+   (python3 --version 2>&1 || true) && \\
+   (go version 2>&1 || true) && \\
+   (rustc --version 2>&1 || true) && \\
+   echo '=== PACKAGE MANAGERS ===' && \\
+   (npm --version 2>&1 && echo "npm $(npm --version 2>&1)" || true) && \\
+   (pip3 --version 2>&1 || true) && \\
+   (cargo --version 2>&1 || true) && \\
+   echo '=== ENVIRONMENT ===' && \\
+   (cat .env 2>/dev/null | sed 's/=.*/=***/' || echo 'no .env file')
+   \`\`\`
+
+2. Summarize the environment in 3-4 lines:
+   - Runtime: [languages + versions found]
+   - Project: [framework, key deps, file count]
+   - State: [git branch, clean/dirty, .env present]
+
+3. Keep this summary in context for the rest of the session.`;
+
+function buildBootstrapHookCommand(spec: EnvironmentSpec): string {
+  const checks: string[] = [
+    "echo '--- Environment Snapshot ---'",
+    "pwd",
+    "ls -la --color=never | head -20",
+    "echo '---'",
+    "git status --short 2>/dev/null || true",
+    "echo '---'",
+  ];
+
+  // Infer project type from claude_md content (Tech Stack section)
+  const md = (spec.harness.claude_md ?? "").toLowerCase();
+  if (md.includes("node") || md.includes("typescript") || md.includes("javascript") || md.includes("react") || md.includes("next")) {
+    checks.push("node --version 2>&1 || true");
+    checks.push("cat package.json 2>/dev/null | head -5 || true");
+  }
+  if (md.includes("python") || md.includes("django") || md.includes("flask") || md.includes("fastapi")) {
+    checks.push("python3 --version 2>&1 || true");
+  }
+  if (md.includes("rust") || md.includes("cargo")) {
+    checks.push("rustc --version 2>&1 || true");
+  }
+  if (md.includes("go ") || md.includes("golang")) {
+    checks.push("go version 2>&1 || true");
+  }
+
+  // .env key masking — show KEY=***, never values
+  checks.push("cat .env 2>/dev/null | sed 's/=.*/=***/' || true");
+
+  return checks.join(" && ");
+}
+
 // ── Level 2: Assisted ───────────────────────────────────────────
 
 const LOOP_COMMAND_CODE = `# Development Loop
@@ -290,8 +354,11 @@ export function applyAutonomyLevel(spec: EnvironmentSpec): void {
     settings.hooks = hooks;
   }
 
-  // Level 2+: Loop, PM agent
+  // Level 2+: Bootstrap command, Loop, PM agent
   if (level >= 2) {
+    if (!("bootstrap" in commands)) {
+      commands.bootstrap = BOOTSTRAP_COMMAND;
+    }
     if (!("loop" in commands)) {
       commands.loop = isResearchProject(spec)
         ? LOOP_COMMAND_RESEARCH
@@ -302,11 +369,25 @@ export function applyAutonomyLevel(spec: EnvironmentSpec): void {
     }
   }
 
-  // Level 3+: Auto command
+  // Level 3+: Auto command + SessionStart bootstrap hook
   if (level >= 3) {
     if (!("auto" in commands)) {
       commands.auto = AUTO_COMMAND;
     }
+
+    // Add SessionStart bootstrap hook (automatic environment snapshot)
+    const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
+    const sessionStart = (hooks.SessionStart ?? []) as unknown[];
+    const bootstrapHook = {
+      matcher: "",
+      hooks: [{
+        type: "command" as const,
+        command: buildBootstrapHookCommand(spec),
+      }],
+    };
+    sessionStart.push(bootstrapHook);
+    hooks.SessionStart = sessionStart;
+    settings.hooks = hooks;
   }
 
   // Level 4: Autopilot command + warning

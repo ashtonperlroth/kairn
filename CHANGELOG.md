@@ -7,6 +7,21 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.13.0] — 2026-03-31
+
+### Added
+- **"First Turn Protocol" section** in every generated CLAUDE.md — instructs the agent to orient (pwd, ls, git status, runtime checks, read task files) before doing any work, saving 2-5 wasted exploration turns per session
+- **`/project:bootstrap` command** for Level 2+ — compound shell command that gathers a full environment snapshot (working directory, project files, git status, language runtimes, package managers, masked .env keys)
+- **SessionStart bootstrap hook** for Level 3-4 — automatic environment snapshot injected when Claude Code starts, so the agent has full runtime context from turn zero
+- **Project-type-aware runtime checks** — `buildBootstrapHookCommand()` infers relevant checks (Node, Python, Rust, Go) from the generated CLAUDE.md tech stack content
+- **`.env` key masking** — bootstrap output uses `sed 's/=.*/=***/'` to show which keys are set without exposing values
+
+### Changed
+- **HARNESS_PROMPT and SYSTEM_PROMPT** — item #16 added to "What You Must Always Include": First Turn Protocol section
+- **`applyAutonomyLevel()`** — Level 2+ gets bootstrap command; Level 3+ gets SessionStart bootstrap hook alongside existing welcome hook
+
+---
+
 ## [1.12.0] — 2026-03-31
 
 ### Changed

@@ -139,6 +139,16 @@ Use subagents for deep investigation to keep main context clean.
 - Do not create abstractions for one-time operations
 - Complete the task fully — don't gold-plate, but don't leave it half-done
 - Prefer editing existing files over creating new ones
+
+## First Turn Protocol
+
+At the start of every session, before doing ANY work:
+1. Run \`pwd && ls -la && git status --short\` to orient yourself
+2. Check relevant runtimes (e.g. \`node --version\`, \`python3 --version\` — pick what fits this project)
+3. Read any task-tracking files (docs/SPRINT.md, docs/DECISIONS.md)
+4. Summarize what you see in 2-3 lines, then proceed
+
+This saves 2-5 exploratory turns. Never ask "what files are here?" — look first.
 \`\`\`
 
 Do not add generic filler. Every line must be specific to the user's workflow.
@@ -160,6 +170,7 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 13. A "Debugging" section in CLAUDE.md (2 lines: paste raw errors, use subagents)
 14. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
 15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
+16. A "First Turn Protocol" section in CLAUDE.md (orient before working: pwd, ls, git status, check relevant runtimes, read task files)
 
 ## Shell-Integrated Commands
 
@@ -436,6 +447,16 @@ Use subagents for deep investigation to keep main context clean.
 - Do not create abstractions for one-time operations
 - Complete the task fully — don't gold-plate, but don't leave it half-done
 - Prefer editing existing files over creating new ones
+
+## First Turn Protocol
+
+At the start of every session, before doing ANY work:
+1. Run \`pwd && ls -la && git status --short\` to orient yourself
+2. Check relevant runtimes (e.g. \`node --version\`, \`python3 --version\` — pick what fits this project)
+3. Read any task-tracking files (docs/SPRINT.md, docs/DECISIONS.md)
+4. Summarize what you see in 2-3 lines, then proceed
+
+This saves 2-5 exploratory turns. Never ask "what files are here?" — look first.
 \`\`\`
 
 Do not add generic filler. Every line must be specific to the user's workflow.
@@ -457,6 +478,7 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 13. A "Debugging" section in CLAUDE.md (2 lines: paste raw errors, use subagents)
 14. A "Git Workflow" section in CLAUDE.md (3 rules: small commits, conventional format, <200 lines PR)
 15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
+16. A "First Turn Protocol" section in CLAUDE.md (orient before working: pwd, ls, git status, check relevant runtimes, read task files)
 
 ## Tool Selection Rules
 
