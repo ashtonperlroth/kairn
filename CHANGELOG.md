@@ -7,6 +7,22 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.8.0] — 2026-03-31
+
+### Added
+- **Interactive API key collection** — after `kairn describe` or `kairn optimize` writes environment files, prompts for each required API key with masked input; entered keys saved to `.env`, skipped keys get empty placeholders
+- **`.env` file generation** — writes project-scoped `.env` with entered keys and empty placeholders for skipped keys
+- **`.gitignore` auto-update** — automatically appends `.env` to `.gitignore` to prevent accidental commits
+- **SessionStart hook** — generated `settings.json` includes a hook that loads `.env` into `CLAUDE_ENV_FILE` so MCP servers can access API keys
+- **`kairn keys` command** — add or update API keys for existing environments; detects required vars from `.mcp.json`, prompts for missing keys
+- **`kairn keys --show`** — display which keys are set (masked) vs missing, with signup URLs
+- **`--quick` flag** skips key prompts in `describe`, writes `.env` with empty placeholders instead
+
+### Added (internal)
+- **`src/secrets.ts` module** — shared utilities for key collection, `.env` reading/writing, `.gitignore` management, and env var detection from `.mcp.json`
+
+---
+
 ## [1.7.0] — 2026-03-31
 
 ### Added

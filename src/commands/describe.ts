@@ -9,6 +9,7 @@ import { writeHermesEnvironment } from "../adapter/hermes-agent.js";
 import { loadRegistry } from "../registry/loader.js";
 import { ui } from "../ui.js";
 import { printFullBanner } from "../logo.js";
+import { collectAndWriteKeys, writeEmptyEnvFile } from "../secrets.js";
 import type { RuntimeTarget, Clarification } from "../types.js";
 
 export const describeCommand = new Command("describe")
@@ -149,7 +150,8 @@ export const describeCommand = new Command("describe")
         chalk.cyan("\n  Ready! Run ") + chalk.bold("hermes") + chalk.cyan(" to start.\n")
       );
     } else {
-      const written = await writeEnvironment(spec, targetDir);
+      const hasEnvVars = summary.envSetup.length > 0;
+      const written = await writeEnvironment(spec, targetDir, { hasEnvVars });
 
       console.log(ui.section("Files Written"));
       console.log("");
@@ -157,16 +159,15 @@ export const describeCommand = new Command("describe")
         console.log(ui.file(file));
       }
 
-      if (summary.envSetup.length > 0) {
-        console.log(ui.section("Setup Required"));
-        console.log("");
-        const seen = new Set<string>();
-        for (const env of summary.envSetup) {
-          if (seen.has(env.envVar)) continue;
-          seen.add(env.envVar);
-          console.log(ui.envVar(env.envVar, env.description, env.signupUrl));
-          console.log("");
+      // Interactive key collection or quick-mode placeholder .env
+      if (hasEnvVars) {
+        if (options.quick) {
+          await writeEmptyEnvFile(summary.envSetup, targetDir);
+          console.log(ui.success("Empty .env written (gitignored) — fill in keys later: kairn keys"));
+        } else {
+          await collectAndWriteKeys(summary.envSetup, targetDir);
         }
+        console.log("");
       }
 
       if (summary.pluginCommands.length > 0) {

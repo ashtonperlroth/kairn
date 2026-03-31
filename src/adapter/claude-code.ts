@@ -12,16 +12,39 @@ function isCodeProject(spec: EnvironmentSpec): boolean {
   return "status" in commands || "test" in commands;
 }
 
+const ENV_LOADER_HOOK = {
+  matcher: "",
+  hooks: [{
+    type: "command",
+    command: 'if [ -f .env ] && [ -n "$CLAUDE_ENV_FILE" ]; then grep -v "^#" .env | grep -v "^$" | grep "=" >> "$CLAUDE_ENV_FILE"; fi',
+  }],
+};
+
 function resolveSettings(
-  spec: EnvironmentSpec
+  spec: EnvironmentSpec,
+  options?: { hasEnvVars?: boolean }
 ): Record<string, unknown> | null {
   const settings = spec.harness.settings;
-  if (!settings || Object.keys(settings).length === 0) return null;
-  if ("statusLine" in settings) return settings as Record<string, unknown>;
-  if (isCodeProject(spec)) {
-    return { ...(settings as Record<string, unknown>), statusLine: STATUS_LINE };
+  const base: Record<string, unknown> = settings && Object.keys(settings).length > 0
+    ? { ...(settings as Record<string, unknown>) }
+    : {};
+
+  // Add statusLine for code projects
+  if (!("statusLine" in base) && isCodeProject(spec)) {
+    base.statusLine = STATUS_LINE;
   }
-  return settings as Record<string, unknown>;
+
+  // Add SessionStart hook for .env loading
+  if (options?.hasEnvVars) {
+    const hooks = (base.hooks ?? {}) as Record<string, unknown[]>;
+    const sessionStart = (hooks.SessionStart ?? []) as unknown[];
+    sessionStart.push(ENV_LOADER_HOOK);
+    hooks.SessionStart = sessionStart;
+    base.hooks = hooks;
+  }
+
+  if (Object.keys(base).length === 0) return null;
+  return base;
 }
 
 async function writeFile(filePath: string, content: string): Promise<void> {
@@ -29,13 +52,16 @@ async function writeFile(filePath: string, content: string): Promise<void> {
   await fs.writeFile(filePath, content, "utf-8");
 }
 
-export function buildFileMap(spec: EnvironmentSpec): Map<string, string> {
+export function buildFileMap(
+  spec: EnvironmentSpec,
+  options?: { hasEnvVars?: boolean }
+): Map<string, string> {
   const files = new Map<string, string>();
 
   if (spec.harness.claude_md) {
     files.set(".claude/CLAUDE.md", spec.harness.claude_md);
   }
-  const resolvedSettings = resolveSettings(spec);
+  const resolvedSettings = resolveSettings(spec, options);
   if (resolvedSettings) {
     files.set(".claude/settings.json", JSON.stringify(resolvedSettings, null, 2));
   }
@@ -79,7 +105,8 @@ export function buildFileMap(spec: EnvironmentSpec): Map<string, string> {
 
 export async function writeEnvironment(
   spec: EnvironmentSpec,
-  targetDir: string
+  targetDir: string,
+  options?: { hasEnvVars?: boolean }
 ): Promise<string[]> {
   const claudeDir = path.join(targetDir, ".claude");
   const written: string[] = [];
@@ -92,7 +119,7 @@ export async function writeEnvironment(
   }
 
   // 2. settings.json
-  const resolvedSettings = resolveSettings(spec);
+  const resolvedSettings = resolveSettings(spec, options);
   if (resolvedSettings) {
     const p = path.join(claudeDir, "settings.json");
     await writeFile(p, JSON.stringify(resolvedSettings, null, 2));

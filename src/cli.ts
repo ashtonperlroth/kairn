@@ -9,6 +9,7 @@ import { optimizeCommand } from "./commands/optimize.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { registryCommand } from "./commands/registry.js";
 import { templatesCommand } from "./commands/templates.js";
+import { keysCommand } from "./commands/keys.js";
 
 const program = new Command();
 
@@ -17,7 +18,7 @@ program
   .description(
     "Compile natural language intent into optimized Claude Code environments"
   )
-  .version("1.7.0")
+  .version("1.8.0")
   .option("--no-color", "Disable colored output");
 
 program.addCommand(initCommand);
@@ -29,6 +30,7 @@ program.addCommand(updateRegistryCommand);
 program.addCommand(doctorCommand);
 program.addCommand(registryCommand);
 program.addCommand(templatesCommand);
+program.addCommand(keysCommand);
 
 // Check for --no-color before parsing (Commander handles it but chalk needs manual disable)
 if (process.argv.includes("--no-color") || process.env.NO_COLOR) {

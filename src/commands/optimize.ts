@@ -13,6 +13,7 @@ import {
 } from "../adapter/claude-code.js";
 import { writeHermesEnvironment } from "../adapter/hermes-agent.js";
 import { loadRegistry } from "../registry/loader.js";
+import { collectAndWriteKeys } from "../secrets.js";
 import type { RuntimeTarget } from "../types.js";
 import { scanProject } from "../scanner/scan.js";
 import type { ProjectProfile } from "../scanner/scan.js";
@@ -51,9 +52,10 @@ function simpleDiff(oldContent: string, newContent: string): string[] {
 
 async function generateDiff(
   spec: EnvironmentSpec,
-  targetDir: string
+  targetDir: string,
+  options?: { hasEnvVars?: boolean }
 ): Promise<FileDiff[]> {
-  const fileMap = buildFileMap(spec);
+  const fileMap = buildFileMap(spec, options);
   const results: FileDiff[] = [];
 
   for (const [relativePath, newContent] of fileMap) {
@@ -304,8 +306,10 @@ export const optimizeCommand = new Command("optimize")
     }
 
     // 6. Diff preview or direct write
+    const hasEnvVars = summary.envSetup.length > 0;
+
     if (options.diff) {
-      const diffs = await generateDiff(spec, targetDir);
+      const diffs = await generateDiff(spec, targetDir, { hasEnvVars });
       const changedDiffs = diffs.filter((d) => d.status !== "unchanged");
 
       if (changedDiffs.length === 0) {
@@ -345,22 +349,17 @@ export const optimizeCommand = new Command("optimize")
       console.log(ui.success(`Ready! Run: $ hermes`));
       console.log("");
     } else {
-      const written = await writeEnvironment(spec, targetDir);
+      const written = await writeEnvironment(spec, targetDir, { hasEnvVars });
 
       console.log(ui.section("Files Written"));
       for (const file of written) {
         console.log(ui.file(file));
       }
 
-      if (summary.envSetup.length > 0) {
-        console.log(ui.section("Setup Required"));
-        const seen = new Set<string>();
-        for (const env of summary.envSetup) {
-          if (seen.has(env.envVar)) continue;
-          seen.add(env.envVar);
-          console.log(ui.envVar(env.envVar, env.description, env.signupUrl));
-          console.log("");
-        }
+      // Interactive key collection after optimize
+      if (hasEnvVars) {
+        await collectAndWriteKeys(summary.envSetup, targetDir);
+        console.log("");
       }
 
       if (summary.pluginCommands.length > 0) {
