@@ -144,19 +144,51 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 
 ## v2.x — Kairn Evolve (Automated Harness Optimization)
 
-> Inspired by [Meta-Harness](https://yoonholee.com/meta-harness/) (Lee et al., Stanford IRIS Lab, 2026). Instead of just generating environments, Kairn evolves them — running agents on real tasks, logging full traces, and using causal reasoning to improve the harness iteratively.
+> Inspired by [Meta-Harness](https://yoonholee.com/meta-harness/) (Lee et al., Stanford IRIS Lab, 2026), [DSPy](https://github.com/stanfordnlp/dspy) (Khattab et al.), [OpenEvolve](https://github.com/algorithmicsuperintelligence/openevolve), and [TextGrad](https://github.com/zou-group/textgrad). Instead of just generating environments, Kairn evolves them — running agents on real tasks, logging full traces, and using causal reasoning to improve the harness iteratively.
 
-- [ ] `kairn evolve` — outer-loop optimizer for Kairn environments
-- [ ] Task definition format (user provides benchmark tasks or real work samples)
-- [ ] Full trace logging (execution logs, tool calls, errors, scores → filesystem)
-- [ ] Agentic proposer reads full trace filesystem to diagnose failure modes
-- [ ] Iterative harness mutation (CLAUDE.md, commands, rules, agents, settings)
-- [ ] Evaluation pipeline (run evolved harness on held-out tasks, compare scores)
-- [ ] Counterfactual diagnosis ("this change helped, this one hurt — why?")
-- [ ] `kairn evolve --iterations N` — control search budget
-- [ ] `kairn evolve --baseline` — snapshot current environment as the control
-- [ ] `kairn evolve --report` — human-readable summary of what changed and why
-- [ ] Support for custom scoring functions (pass/fail, rubric, LLM-as-judge)
+Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evolve.md)
+
+### v2.0.0 — Task Definition & Trace Infrastructure
+- [ ] `kairn evolve init` — scaffold an evolution workspace (`.kairn-evolve/`)
+- [ ] Task definition format (`tasks.yaml` — description, expected outcome, scoring rubric)
+- [ ] Baseline snapshot (`kairn evolve baseline`) — copy current `.claude/` as iteration 0
+- [ ] Task runner — execute agent on a single task, capture full trace to filesystem
+- [ ] Trace schema: `traces/{iteration}/{task_id}/` containing stdout, tool_calls.json, files_changed.json, score.json
+- [ ] Pass/fail scorer (default) + LLM-as-judge scorer (configurable)
+- [ ] `kairn evolve run --task <id>` — run a single task against current environment
+
+### v2.1.0 — The Evolution Loop
+- [ ] `kairn evolve run` — full evaluation (run all tasks, aggregate scores)
+- [ ] Proposer agent — reads trace filesystem, diagnoses failures, proposes harness mutations
+- [ ] Harness diff engine — apply proposed mutations to CLAUDE.md / commands / rules / agents
+- [ ] Iteration loop: evaluate → diagnose → mutate → re-evaluate
+- [ ] `kairn evolve --iterations N` — control search budget (default: 5)
+- [ ] Iteration log: `iterations/{N}/` with mutation_diff.patch, scores.json, proposer_reasoning.md
+- [ ] Rollback on regression (score drops → revert to previous best)
+
+### v2.2.0 — Diagnosis & Reporting
+- [ ] Counterfactual diagnosis ("this CLAUDE.md change helped task A but hurt task B — why?")
+- [ ] Per-task trace diffing (what changed between iteration N and N+1 for the same task?)
+- [ ] `kairn evolve report` — human-readable Markdown summary of the evolution run
+- [ ] `kairn evolve report --json` — machine-readable for CI/pipelines
+- [ ] Evolution leaderboard (table of iterations × tasks × scores)
+- [ ] `kairn evolve diff <iter1> <iter2>` — show harness changes between iterations
+
+### v2.3.0 — Advanced Scoring & Search
+- [ ] Custom scoring functions (user-defined Python/TS scoring scripts)
+- [ ] Multi-objective scoring (correctness × efficiency × token cost)
+- [ ] Search strategy selection: greedy (default), best-of-N, population-based (OpenEvolve-style)
+- [ ] Held-out validation set (train/test split for tasks to prevent overfitting)
+- [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads)
+- [ ] Cost tracking per iteration (total tokens, API cost, wall time)
+
+### v2.4.0 — Polish & Integration
+- [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
+- [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
+- [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")
+- [ ] Template evolution (evolve a template against its canonical tasks)
+- [ ] Export evolved environment as a new Kairn template
+- [ ] CI/CD integration guide (run `kairn evolve` in GitHub Actions)
 
 ---
 
