@@ -99,6 +99,15 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Updated Google models (Gemini 3 Flash, Gemini 3.1 Pro, Gemini 2.5 Flash/Pro)
 - [x] Cheap model routing for clarification step (Haiku/nano/flash regardless of compilation model)
 
+### v1.10.1 — Robust Compilation ([design doc](docs/design/v1.10.1-robust-compilation.md))
+- [ ] Multi-pass compilation pipeline (skeleton → harness content → deterministic settings)
+- [ ] Pass 1: Tool selection + project outline (small JSON, max_tokens: 2048)
+- [ ] Pass 2: CLAUDE.md + commands + rules + agents + docs (full content, max_tokens: 8192)
+- [ ] Pass 3: settings.json + .mcp.json generated deterministically from registry (no LLM)
+- [ ] Retry logic for Pass 2 with concise fallback mode
+- [ ] Split SYSTEM_PROMPT into focused SKELETON_PROMPT and HARNESS_PROMPT
+- [ ] Fix: complex prompts (biotech, k8s, ML, music) no longer crash with JSON truncation
+
 ### v1.11.0 — Claude Code Power Patterns ([design doc](docs/design/v1.11-claude-code-power-patterns.md))
 - [ ] `/project:ultraplan` — multi-agent deep planning (3 parallel explorers + 1 critique agent)
 - [ ] `/project:security` — security review with >80% confidence threshold, 5 vulnerability categories
