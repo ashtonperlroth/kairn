@@ -115,12 +115,12 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Integration of Claude Code power patterns: `/project:ultraplan`, `/project:security`, `/project:batch`, `/project:review`, `/project:compact` (now as building blocks for `/develop`).
 - [x] Engineering Standards, Tool Usage Policy, Git Safety, Coordinator Precision, Deferred Tool Discovery principles embedded in CLAUDE.md.
 
-### v1.12.0 — Compilation UX ([design doc](docs/design/v1.12-compilation-ux.md))
-- [ ] Phase-by-phase progress display (registry → Pass 1 → Pass 2 → Pass 3 with ✔/◐/⚠ indicators)
-- [ ] Live elapsed timer (updates every second during active pass)
-- [ ] Time estimate based on model tier and prompt complexity
-- [ ] Retry visibility (⚠ warning when Pass 2 retries in concise mode)
-- [ ] Final summary line ("Environment compiled in 37s")
+### v1.12.0 ✅ — Compilation UX ([design doc](docs/design/v1.12-compilation-ux.md))
+- [x] Phase-by-phase progress display (registry → Pass 1 → Pass 2 → Pass 3 with ✔/◐/⚠ indicators)
+- [x] Live elapsed timer (updates every second during active pass)
+- [x] Time estimate based on model tier and prompt complexity
+- [x] Retry visibility (⚠ warning when Pass 2 retries in concise mode)
+- [x] Final summary line ("Environment compiled in 37s")
 
 ---
 

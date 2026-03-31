@@ -7,6 +7,27 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.0] — 2026-03-31
+
+### Changed
+- **Phase-by-phase progress display** — `kairn describe` compilation now shows labeled phases (registry, Pass 1, Pass 2, Pass 3) with ✔/◐/⚠ status indicators instead of a single spinner
+- **Live elapsed timer** — running `[Xs]` counter updates every second during each active compilation pass, eliminating "is it frozen?" anxiety
+- **Time estimate** — model-tier and prompt-complexity based estimate shown before compilation starts (e.g., "~40s" for Sonnet, "~2-4 min" for complex Opus prompts); supports all 8 providers
+- **Retry visibility** — when Pass 2 retries in concise mode, shows ⚠ warning line before continuing
+- **Final summary** — compilation ends with "Environment compiled in Xs" showing actual wall-clock time
+
+### Added
+- `CompileProgress` interface in `src/types.ts` — structured progress events with phase, status, message, detail, elapsed, and estimate fields
+- `createProgressRenderer()` in `src/ui.ts` — multi-line ANSI progress renderer with cursor repositioning and interval-based elapsed timer
+- `estimateTime()` in `src/ui.ts` — heuristic time estimator supporting 19+ model variants across all providers
+
+### Changed (internal)
+- `compile()` callback signature changed from `(msg: string) => void` to `(progress: CompileProgress) => void`
+- `validateSpec()` now returns warnings array instead of emitting via callback
+- `optimize` command updated to work with new `CompileProgress` callback
+
+---
+
 ## [1.11.0] — 2026-03-31
 
 ### Added
