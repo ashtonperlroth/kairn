@@ -554,5 +554,327 @@
     "install": {
       "plugin_command": "/plugin install frontend-design@claude-plugins-official"
     }
+  },
+  {
+    "id": "sentry",
+    "name": "Sentry",
+    "description": "Error monitoring, performance tracking, and issue management for production applications.",
+    "category": "code_devtools",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": [
+      "error-tracking",
+      "monitoring",
+      "debugging",
+      "production"
+    ],
+    "install": {
+      "mcp_config": {
+        "sentry": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@sentry/mcp-server"
+          ],
+          "env": {
+            "SENTRY_AUTH_TOKEN": "${SENTRY_AUTH_TOKEN}"
+          }
+        }
+      }
+    },
+    "env_vars": [
+      {
+        "name": "SENTRY_AUTH_TOKEN",
+        "description": "Sentry auth token (Settings > Auth Tokens)"
+      }
+    ],
+    "signup_url": "https://sentry.io/signup/"
+  },
+  {
+    "id": "vercel",
+    "name": "Vercel",
+    "description": "Deploy, manage, and monitor Vercel projects and serverless functions.",
+    "category": "data_infrastructure",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": [
+      "deployment",
+      "hosting",
+      "serverless",
+      "vercel"
+    ],
+    "install": {
+      "mcp_config": {
+        "vercel": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@vercel/mcp-server"
+          ],
+          "env": {
+            "VERCEL_TOKEN": "${VERCEL_TOKEN}"
+          }
+        }
+      }
+    },
+    "env_vars": [
+      {
+        "name": "VERCEL_TOKEN",
+        "description": "Vercel personal access token (Settings > Tokens)"
+      }
+    ],
+    "signup_url": "https://vercel.com/account/tokens"
+  },
+  {
+    "id": "docker",
+    "name": "Docker Toolkit",
+    "description": "Build, run, and manage Docker containers and images.",
+    "category": "data_infrastructure",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "none",
+    "best_for": [
+      "containers",
+      "docker",
+      "devops",
+      "infrastructure"
+    ],
+    "install": {
+      "mcp_config": {
+        "docker": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@docker/mcp-server"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "id": "chrome-devtools",
+    "name": "Chrome DevTools",
+    "description": "Browser debugging, network inspection, and performance profiling.",
+    "category": "browser_automation",
+    "tier": 3,
+    "type": "plugin",
+    "auth": "none",
+    "best_for": [
+      "debugging",
+      "frontend",
+      "web-dev",
+      "performance"
+    ],
+    "install": {
+      "plugin_command": "/plugin install chrome-devtools@claude-plugins-official"
+    }
+  },
+  {
+    "id": "sqlite",
+    "name": "SQLite",
+    "description": "Local SQLite database operations for development and prototyping.",
+    "category": "data_infrastructure",
+    "tier": 3,
+    "type": "mcp_server",
+    "auth": "none",
+    "best_for": [
+      "database",
+      "prototyping",
+      "local-dev",
+      "sql"
+    ],
+    "install": {
+      "mcp_config": {
+        "sqlite": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-sqlite"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "id": "stripe",
+    "name": "Stripe",
+    "description": "Payment processing, subscription management, and billing operations.",
+    "category": "data_infrastructure",
+    "tier": 4,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": [
+      "payments",
+      "billing",
+      "e-commerce",
+      "stripe"
+    ],
+    "install": {
+      "mcp_config": {
+        "stripe": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@stripe/mcp-server"
+          ],
+          "env": {
+            "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
+          }
+        }
+      }
+    },
+    "env_vars": [
+      {
+        "name": "STRIPE_SECRET_KEY",
+        "description": "Stripe secret key (Dashboard > Developers > API keys)"
+      }
+    ],
+    "signup_url": "https://dashboard.stripe.com/apikeys"
+  },
+  {
+    "id": "memory",
+    "name": "Memory (Knowledge Graph)",
+    "description": "Persistent knowledge graph for storing entities, relations, and project context across sessions.",
+    "category": "reasoning",
+    "tier": 4,
+    "type": "mcp_server",
+    "auth": "none",
+    "best_for": [
+      "context-management",
+      "knowledge-base",
+      "memory",
+      "long-running"
+    ],
+    "install": {
+      "mcp_config": {
+        "memory": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-memory"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "id": "e2b",
+    "name": "E2B Sandbox",
+    "description": "Secure cloud sandboxes for executing untrusted code and running experiments.",
+    "category": "code_devtools",
+    "tier": 4,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": [
+      "code-execution",
+      "sandboxing",
+      "experiments",
+      "data-science"
+    ],
+    "install": {
+      "mcp_config": {
+        "e2b": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@e2b/mcp-server"
+          ],
+          "env": {
+            "E2B_API_KEY": "${E2B_API_KEY}"
+          }
+        }
+      }
+    },
+    "env_vars": [
+      {
+        "name": "E2B_API_KEY",
+        "description": "E2B API key for cloud sandboxes"
+      }
+    ],
+    "signup_url": "https://e2b.dev/dashboard"
+  },
+  {
+    "id": "gpt-researcher",
+    "name": "GPT Researcher",
+    "description": "Autonomous deep research agent for comprehensive topic investigation.",
+    "category": "search_research",
+    "tier": 5,
+    "type": "mcp_server",
+    "auth": "api_key",
+    "best_for": [
+      "deep-research",
+      "literature-review",
+      "investigation",
+      "analysis"
+    ],
+    "install": {
+      "mcp_config": {
+        "gpt-researcher": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "gpt-researcher-mcp"
+          ],
+          "env": {
+            "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+          }
+        }
+      }
+    },
+    "env_vars": [
+      {
+        "name": "OPENAI_API_KEY",
+        "description": "OpenAI API key for GPT Researcher"
+      }
+    ],
+    "signup_url": "https://platform.openai.com/api-keys"
+  },
+  {
+    "id": "jira",
+    "name": "Jira",
+    "description": "Issue tracking, sprint management, and project boards for Jira.",
+    "category": "communication",
+    "tier": 5,
+    "type": "mcp_server",
+    "auth": "oauth",
+    "best_for": [
+      "project-management",
+      "issue-tracking",
+      "agile",
+      "jira"
+    ],
+    "install": {
+      "mcp_config": {
+        "jira": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-jira"
+          ],
+          "env": {
+            "JIRA_URL": "${JIRA_URL}",
+            "JIRA_EMAIL": "${JIRA_EMAIL}",
+            "JIRA_API_TOKEN": "${JIRA_API_TOKEN}"
+          }
+        }
+      }
+    },
+    "env_vars": [
+      {
+        "name": "JIRA_URL",
+        "description": "Jira instance URL (e.g., https://yourteam.atlassian.net)"
+      },
+      {
+        "name": "JIRA_EMAIL",
+        "description": "Your Jira account email"
+      },
+      {
+        "name": "JIRA_API_TOKEN",
+        "description": "Jira API token"
+      }
+    ],
+    "signup_url": "https://id.atlassian.com/manage-profile/security/api-tokens"
   }
 ]

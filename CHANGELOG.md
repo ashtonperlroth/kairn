@@ -7,6 +7,21 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.3.0] — 2026-03-30
+
+### Added
+- **Structured CLAUDE.md template** — Mandatory 7-section format (Purpose, Tech Stack, Commands, Architecture, Conventions, Key Commands, Output) enforced by compilation prompt
+- **Shell-integrated commands** — Generated slash commands use `!` prefix for live shell output (git status, test results, build output)
+- **Path-scoped rules** — YAML frontmatter `paths:` support for domain-specific rules (api.md, testing.md, frontend.md)
+- **Hooks in settings.json** — Auto-generated PreToolUse hook to block destructive commands; PostToolUse formatter hook for projects with Prettier/ESLint/Black
+- **`/project:status` command** — Live git status, recent commits, and TODO overview using `!` prefix
+- **`/project:fix` command** — Issue-driven development with `$ARGUMENTS` for issue numbers
+- **Improved TDD skill** — 3-phase isolation pattern (RED → GREEN → REFACTOR) replacing generic TDD instruction
+- **10 new tools in registry** (28 total): Sentry, Vercel, Docker Toolkit, Chrome DevTools, SQLite, Stripe, Memory (Knowledge Graph), E2B Sandbox, GPT Researcher, Jira
+- **Optimize audit checks** — Now flags missing hooks and missing path-scoped rules
+
+---
+
 ## [1.1.0] — 2026-03-31
 
 ### Added

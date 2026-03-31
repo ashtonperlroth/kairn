@@ -13,7 +13,7 @@ program
   .description(
     "Compile natural language intent into optimized Claude Code environments"
   )
-  .version("1.0.0");
+  .version("1.3.0");
 
 program.addCommand(initCommand);
 program.addCommand(describeCommand);

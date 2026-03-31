@@ -85,6 +85,10 @@ function buildOptimizeIntent(profile: ProjectProfile): string {
     parts.push("- Are security rules present?");
     parts.push("- Is there a continuity rule for session memory?");
     parts.push("- Are there unnecessary MCP servers adding context bloat?");
+    parts.push("- Are hooks configured in settings.json for destructive command blocking?");
+    parts.push("- Are there path-scoped rules for different code domains (api, testing, frontend)?");
+    parts.push("- Does the project have a /project:status command with live git output?");
+    parts.push("- Is there a /project:fix command for issue-driven development?");
     if (profile.claudeMdLineCount > 200) {
       parts.push(`- CLAUDE.md is ${profile.claudeMdLineCount} lines — needs aggressive trimming`);
     }
@@ -156,6 +160,9 @@ export const optimizeCommand = new Command("optimize")
       if (profile.mcpServerCount === 0 && profile.dependencies.length > 0) issues.push("No MCP servers configured");
       if (profile.hasTests && !profile.existingCommands.includes("test")) issues.push("Has tests but no /project:test command");
       if (!profile.existingCommands.includes("tasks")) issues.push("Missing /project:tasks command");
+      if (!profile.existingSettings?.hooks) issues.push("No hooks configured — missing destructive command blocking");
+      const scopedRules = profile.existingRules.filter(r => r !== "security" && r !== "continuity");
+      if (profile.hasSrc && scopedRules.length === 0) issues.push("No path-scoped rules — consider adding api.md, testing.md, or frontend.md rules");
 
       if (issues.length > 0) {
         console.log(chalk.yellow("\n  Issues Found:\n"));

@@ -25,14 +25,14 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Post-setup instructions with API key requirements and signup URLs
 - [x] Correct model IDs + backward-compatible config migration
 
-### v1.3.0 — Environment Quality ([design doc](docs/design/v1.3-environment-quality.md))
-- [ ] Structured CLAUDE.md template (7-section format enforced by compilation prompt)
-- [ ] Shell-integrated commands (`!git diff`, `!npm test` in slash commands)
-- [ ] Path-scoped rules with YAML frontmatter (api, testing, frontend)
-- [ ] Hooks in settings.json (auto-format, block-destructive, protect-secrets)
-- [ ] `/project:status` and `/project:fix` commands
-- [ ] Expanded registry (25-30 tools: Sentry, Vercel, Docker, SQLite, Chrome DevTools)
-- [ ] Improved TDD skill with subagent isolation pattern
+### v1.3.0 ✅ — Environment Quality ([design doc](docs/design/v1.3-environment-quality.md))
+- [x] Structured CLAUDE.md template (7-section format enforced by compilation prompt)
+- [x] Shell-integrated commands (`!git diff`, `!npm test` in slash commands)
+- [x] Path-scoped rules with YAML frontmatter (api, testing, frontend)
+- [x] Hooks in settings.json (auto-format, block-destructive, protect-secrets)
+- [x] `/project:status` and `/project:fix` commands
+- [x] Expanded registry (28 tools: Sentry, Vercel, Docker, SQLite, Chrome DevTools, Stripe, Memory, E2B, GPT Researcher, Jira)
+- [x] Improved TDD skill with 3-phase isolation pattern
 
 ### v1.4.0 — Advanced Patterns ([design doc](docs/design/v1.4-advanced-patterns.md))
 - [ ] Sprint contract pattern (`/project:sprint` — define acceptance criteria)
