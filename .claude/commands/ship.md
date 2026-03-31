@@ -1,36 +1,37 @@
-Implement the next unreleased version from ROADMAP.md.
+Implement the next unreleased version from ROADMAP.md using subagents.
 
-1. READ ROADMAP.md. Find the first version with unchecked items (- [ ]). That is the target version.
+## Phase 1: PLAN
+Read ROADMAP.md. Find the first version with unchecked items (- [ ]). That is the target.
+Read the design doc at docs/design/v1.X-*.md for that version.
+List every item to implement. This is the sprint backlog.
 
-2. READ the design doc for that version at docs/design/v1.X-*.md (match the version number). If no design doc exists, use the ROADMAP checklist items as the spec.
+## Phase 2: IMPLEMENT
+For each item in the backlog, use the @implementer agent:
+- Pass it the specific section from the design doc
+- Let it implement, build, and commit
+- Move to the next item after it finishes
 
-3. IMPLEMENT each unchecked item in the design doc, one at a time:
-   - Read the relevant section of the design doc
-   - Write the code
-   - Run `npm run build` to verify compilation
-   - Git commit with message: "feat(v1.X): description of what was implemented"
+If there is no design doc, implement directly from the ROADMAP checklist items.
 
-4. After ALL items are implemented, TEST against the checklist at the bottom of the design doc. Fix any failures.
+## Phase 3: VERIFY
+Use the @verifier agent:
+- Pass it the "Testing This Release" section from the design doc
+- It will run each test and report PASS/FAIL
+- If any FAIL: use @implementer to fix, then re-verify
 
-5. UPDATE CHANGELOG.md:
-   - Add a new version section at the top
-   - List all changes under ### Added, ### Fixed, ### Changed as appropriate
-   - Use the same descriptions from git commits
+## Phase 4: FINALIZE
+After all tests pass:
 
-6. UPDATE ROADMAP.md:
-   - Check off all completed items (change `- [ ]` to `- [x]`)
-   - Change version status to ✅
+1. Update CHANGELOG.md — add new version section with all changes
+2. Update ROADMAP.md — check off completed items, mark version ✅
+3. Run: `npm version minor --no-git-tag-version`
+4. Run: `npm run build`
+5. Commit: "vX.Y.0 — short description of this release"
+6. Tag: `git tag vX.Y.0`
 
-7. BUMP VERSION:
-   - Run `npm version minor --no-git-tag-version`
-   - Run `npm run build`
-   - Git commit: "v1.X.0 — short description"
-   - Git tag: `git tag v1.X.0`
-
-8. REPORT what was built, what tests passed, and remind the user to run:
-   ```
-   npm publish --access public
-   git push --tags
-   ```
-
-Follow all coding standards from .claude/rules/. Reference RESEARCH files at ~/Projects/kairn-internal/ if you need ecosystem context.
+Then tell the user:
+```
+Ready to publish! Run:
+  npm publish --access public
+  git push --tags
+```
