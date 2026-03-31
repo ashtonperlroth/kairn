@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { input, confirm } from "@inquirer/prompts";
+import { input, confirm, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import ora from "ora";
 import { loadConfig } from "../config.js";
@@ -10,7 +10,8 @@ import { loadRegistry } from "../registry/loader.js";
 import { ui } from "../ui.js";
 import { printFullBanner } from "../logo.js";
 import { collectAndWriteKeys, writeEmptyEnvFile } from "../secrets.js";
-import type { RuntimeTarget, Clarification } from "../types.js";
+import { autonomyLabel } from "../autonomy.js";
+import type { RuntimeTarget, Clarification, AutonomyLevel } from "../types.js";
 
 export const describeCommand = new Command("describe")
   .description("Describe your workflow and generate a Claude Code environment")
@@ -84,7 +85,26 @@ export const describeCommand = new Command("describe")
       }
     }
 
-    // 5. Compilation
+    // 5. Autonomy level
+    let autonomyLevel: AutonomyLevel = 1;
+
+    if (!options.quick) {
+      console.log(ui.section("Autonomy"));
+      autonomyLevel = await select({
+        message: "Autonomy level",
+        choices: [
+          { name: "1. Guided — orientation + commands, you drive", value: 1 as AutonomyLevel },
+          { name: "2. Assisted — workflow loop, you approve phases", value: 2 as AutonomyLevel },
+          { name: "3. Autonomous — PM plans, loop executes, you review PRs", value: 3 as AutonomyLevel },
+          { name: "4. Full Auto — continuous execution (⚠ advanced)", value: 4 as AutonomyLevel },
+        ],
+        default: 1,
+      });
+
+      finalIntent += `\n\nAutonomy level: ${autonomyLevel} (${autonomyLabel(autonomyLevel)})`;
+    }
+
+    // 6. Compilation
     console.log(ui.section("Compilation"));
 
     const spinner = ora({ text: "Loading tool registry...", indent: 2 }).start();
@@ -94,6 +114,7 @@ export const describeCommand = new Command("describe")
       spec = await compile(finalIntent, (msg) => {
         spinner.text = msg;
       });
+      spec.autonomy_level = autonomyLevel;
       spinner.succeed("Environment compiled");
     } catch (err) {
       spinner.fail("Compilation failed");
@@ -102,13 +123,14 @@ export const describeCommand = new Command("describe")
       process.exit(1);
     }
 
-    // 6. Results display
+    // 7. Results display
     const registry = await loadRegistry();
     const summary = summarizeSpec(spec, registry);
 
     console.log("");
     console.log(ui.kv("Name:", spec.name));
     console.log(ui.kv("Description:", spec.description));
+    console.log(ui.kv("Autonomy:", `Level ${spec.autonomy_level} (${autonomyLabel(spec.autonomy_level)})`));
     console.log(ui.kv("Tools:", String(summary.toolCount)));
     console.log(ui.kv("Commands:", String(summary.commandCount)));
     console.log(ui.kv("Rules:", String(summary.ruleCount)));
