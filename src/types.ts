@@ -13,12 +13,15 @@ export interface ToolSelection {
   reason: string;
 }
 
+export type AutonomyLevel = 1 | 2 | 3 | 4;
+
 export interface EnvironmentSpec {
   id: string;
   name: string;
   description: string;
   intent: string;
   created_at: string;
+  autonomy_level: AutonomyLevel;
   tools: ToolSelection[];
   harness: {
     claude_md: string;
