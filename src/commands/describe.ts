@@ -121,8 +121,23 @@ export const describeCommand = new Command("describe")
       console.log(chalk.dim(`    ${file}`));
     }
 
+    if (summary.envSetup.length > 0) {
+      console.log(chalk.yellow("\n  API keys needed (set these environment variables):\n"));
+      const seen = new Set<string>();
+      for (const env of summary.envSetup) {
+        if (seen.has(env.envVar)) continue;
+        seen.add(env.envVar);
+        console.log(chalk.bold(`    export ${env.envVar}="your-key-here"`));
+        console.log(chalk.dim(`      ${env.description}`));
+        if (env.signupUrl) {
+          console.log(chalk.dim(`      Get one at: ${env.signupUrl}`));
+        }
+        console.log("");
+      }
+    }
+
     if (summary.pluginCommands.length > 0) {
-      console.log(chalk.yellow("\n  Install plugins by running these in Claude Code:"));
+      console.log(chalk.yellow("  Install plugins by running these in Claude Code:"));
       for (const cmd of summary.pluginCommands) {
         console.log(chalk.bold(`    ${cmd}`));
       }

@@ -87,6 +87,13 @@ export async function writeEnvironment(
   return written;
 }
 
+export interface EnvSetupInfo {
+  toolName: string;
+  envVar: string;
+  description: string;
+  signupUrl?: string;
+}
+
 export function summarizeSpec(
   spec: EnvironmentSpec,
   registry: RegistryTool[]
@@ -97,12 +104,28 @@ export function summarizeSpec(
   skillCount: number;
   agentCount: number;
   pluginCommands: string[];
+  envSetup: EnvSetupInfo[];
 } {
   const pluginCommands: string[] = [];
+  const envSetup: EnvSetupInfo[] = [];
+
   for (const selected of spec.tools) {
     const tool = registry.find((t) => t.id === selected.tool_id);
-    if (tool?.install.plugin_command) {
+    if (!tool) continue;
+
+    if (tool.install.plugin_command) {
       pluginCommands.push(tool.install.plugin_command);
+    }
+
+    if (tool.env_vars) {
+      for (const ev of tool.env_vars) {
+        envSetup.push({
+          toolName: tool.name,
+          envVar: ev.name,
+          description: ev.description,
+          signupUrl: tool.signup_url,
+        });
+      }
     }
   }
 
@@ -113,5 +136,6 @@ export function summarizeSpec(
     skillCount: Object.keys(spec.harness.skills || {}).length,
     agentCount: Object.keys(spec.harness.agents || {}).length,
     pluginCommands,
+    envSetup,
   };
 }

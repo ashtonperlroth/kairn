@@ -7,12 +7,20 @@
     "tier": 1,
     "type": "mcp_server",
     "auth": "none",
-    "best_for": ["coding", "library-usage", "documentation", "any"],
+    "best_for": [
+      "coding",
+      "library-usage",
+      "documentation",
+      "any"
+    ],
     "install": {
       "mcp_config": {
         "context7": {
           "command": "npx",
-          "args": ["-y", "@upstash/context7-mcp@latest"]
+          "args": [
+            "-y",
+            "@upstash/context7-mcp@latest"
+          ]
         }
       }
     }
@@ -25,12 +33,20 @@
     "tier": 1,
     "type": "mcp_server",
     "auth": "none",
-    "best_for": ["complex-tasks", "architecture", "debugging", "any"],
+    "best_for": [
+      "complex-tasks",
+      "architecture",
+      "debugging",
+      "any"
+    ],
     "install": {
       "mcp_config": {
         "sequential-thinking": {
           "command": "npx",
-          "args": ["-y", "@anthropic/mcp-server-sequential-thinking"]
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-sequential-thinking"
+          ]
         }
       }
     }
@@ -43,7 +59,11 @@
     "tier": 1,
     "type": "plugin",
     "auth": "none",
-    "best_for": ["coding", "security", "any"],
+    "best_for": [
+      "coding",
+      "security",
+      "any"
+    ],
     "install": {
       "plugin_command": "/plugin install security-guidance@claude-plugins-official"
     }
@@ -56,18 +76,33 @@
     "tier": 2,
     "type": "mcp_server",
     "auth": "oauth",
-    "best_for": ["coding", "collaboration", "open-source", "github"],
+    "best_for": [
+      "coding",
+      "collaboration",
+      "open-source",
+      "github"
+    ],
     "install": {
       "mcp_config": {
         "github": {
           "command": "npx",
-          "args": ["-y", "@anthropic/mcp-server-github"],
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-github"
+          ],
           "env": {
             "GITHUB_TOKEN": "${GITHUB_TOKEN}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "GITHUB_TOKEN",
+        "description": "Personal access token (Settings > Developer settings > Tokens)"
+      }
+    ],
+    "signup_url": "https://github.com/settings/tokens"
   },
   {
     "id": "playwright",
@@ -77,7 +112,12 @@
     "tier": 2,
     "type": "plugin",
     "auth": "none",
-    "best_for": ["web-dev", "testing", "frontend", "e2e-testing"],
+    "best_for": [
+      "web-dev",
+      "testing",
+      "frontend",
+      "e2e-testing"
+    ],
     "install": {
       "plugin_command": "/plugin install playwright@claude-plugins-official"
     }
@@ -90,18 +130,32 @@
     "tier": 2,
     "type": "mcp_server",
     "auth": "api_key",
-    "best_for": ["coding", "security", "code-review"],
+    "best_for": [
+      "coding",
+      "security",
+      "code-review"
+    ],
     "install": {
       "mcp_config": {
         "semgrep": {
           "command": "npx",
-          "args": ["-y", "@semgrep/mcp"],
+          "args": [
+            "-y",
+            "@semgrep/mcp"
+          ],
           "env": {
             "SEMGREP_APP_TOKEN": "${SEMGREP_APP_TOKEN}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "SEMGREP_APP_TOKEN",
+        "description": "Semgrep app token for static analysis"
+      }
+    ],
+    "signup_url": "https://semgrep.dev/login"
   },
   {
     "id": "exa",
@@ -111,18 +165,32 @@
     "tier": 3,
     "type": "mcp_server",
     "auth": "api_key",
-    "best_for": ["research", "technical-search", "literature-review"],
+    "best_for": [
+      "research",
+      "technical-search",
+      "literature-review"
+    ],
     "install": {
       "mcp_config": {
         "exa": {
           "command": "npx",
-          "args": ["-y", "exa-mcp-server"],
+          "args": [
+            "-y",
+            "exa-mcp-server"
+          ],
           "env": {
             "EXA_API_KEY": "${EXA_API_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "EXA_API_KEY",
+        "description": "Exa API key for semantic search"
+      }
+    ],
+    "signup_url": "https://dashboard.exa.ai/api-keys"
   },
   {
     "id": "brave-search",
@@ -132,18 +200,32 @@
     "tier": 3,
     "type": "mcp_server",
     "auth": "api_key",
-    "best_for": ["research", "general-search", "web-lookup"],
+    "best_for": [
+      "research",
+      "general-search",
+      "web-lookup"
+    ],
     "install": {
       "mcp_config": {
         "brave-search": {
           "command": "npx",
-          "args": ["-y", "@anthropic/mcp-server-brave"],
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-brave"
+          ],
           "env": {
             "BRAVE_API_KEY": "${BRAVE_API_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "BRAVE_API_KEY",
+        "description": "Brave Search API key"
+      }
+    ],
+    "signup_url": "https://brave.com/search/api/"
   },
   {
     "id": "firecrawl",
@@ -153,18 +235,32 @@
     "tier": 3,
     "type": "mcp_server",
     "auth": "api_key",
-    "best_for": ["research", "web-scraping", "content-extraction"],
+    "best_for": [
+      "research",
+      "web-scraping",
+      "content-extraction"
+    ],
     "install": {
       "mcp_config": {
         "firecrawl": {
           "command": "npx",
-          "args": ["-y", "firecrawl-mcp"],
+          "args": [
+            "-y",
+            "firecrawl-mcp"
+          ],
           "env": {
             "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "FIRECRAWL_API_KEY",
+        "description": "Firecrawl API key for web extraction"
+      }
+    ],
+    "signup_url": "https://firecrawl.dev/app/api-keys"
   },
   {
     "id": "perplexity",
@@ -174,18 +270,32 @@
     "tier": 3,
     "type": "mcp_server",
     "auth": "api_key",
-    "best_for": ["research", "fact-checking", "deep-research"],
+    "best_for": [
+      "research",
+      "fact-checking",
+      "deep-research"
+    ],
     "install": {
       "mcp_config": {
         "perplexity": {
           "command": "npx",
-          "args": ["-y", "@anthropic/mcp-server-perplexity"],
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-perplexity"
+          ],
           "env": {
             "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "PERPLEXITY_API_KEY",
+        "description": "Perplexity API key for AI-powered research"
+      }
+    ],
+    "signup_url": "https://perplexity.ai/settings/api"
   },
   {
     "id": "postgres",
@@ -195,15 +305,31 @@
     "tier": 4,
     "type": "mcp_server",
     "auth": "connection_string",
-    "best_for": ["database", "data-analysis", "backend", "sql"],
+    "best_for": [
+      "database",
+      "data-analysis",
+      "backend",
+      "sql"
+    ],
     "install": {
       "mcp_config": {
         "postgres": {
           "command": "npx",
-          "args": ["-y", "@bytebase/dbhub", "--dsn", "${DATABASE_URL}"]
+          "args": [
+            "-y",
+            "@bytebase/dbhub",
+            "--dsn",
+            "${DATABASE_URL}"
+          ]
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "DATABASE_URL",
+        "description": "PostgreSQL connection string (postgres://user:pass@host:5432/db)"
+      }
+    ]
   },
   {
     "id": "supabase",
@@ -213,19 +339,38 @@
     "tier": 4,
     "type": "mcp_server",
     "auth": "api_key",
-    "best_for": ["backend", "database", "auth", "supabase"],
+    "best_for": [
+      "backend",
+      "database",
+      "auth",
+      "supabase"
+    ],
     "install": {
       "mcp_config": {
         "supabase": {
           "command": "npx",
-          "args": ["-y", "@supabase/mcp-server"],
+          "args": [
+            "-y",
+            "@supabase/mcp-server"
+          ],
           "env": {
             "SUPABASE_URL": "${SUPABASE_URL}",
             "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "SUPABASE_URL",
+        "description": "Your Supabase project URL"
+      },
+      {
+        "name": "SUPABASE_SERVICE_ROLE_KEY",
+        "description": "Service role key (Settings > API)"
+      }
+    ],
+    "signup_url": "https://supabase.com/dashboard"
   },
   {
     "id": "slack",
@@ -235,18 +380,32 @@
     "tier": 5,
     "type": "mcp_server",
     "auth": "oauth",
-    "best_for": ["communication", "team-collaboration", "outreach"],
+    "best_for": [
+      "communication",
+      "team-collaboration",
+      "outreach"
+    ],
     "install": {
       "mcp_config": {
         "slack": {
           "command": "npx",
-          "args": ["-y", "@anthropic/mcp-server-slack"],
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-slack"
+          ],
           "env": {
             "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "SLACK_BOT_TOKEN",
+        "description": "Slack bot token (xoxb-...)"
+      }
+    ],
+    "signup_url": "https://api.slack.com/apps"
   },
   {
     "id": "notion",
@@ -256,18 +415,32 @@
     "tier": 5,
     "type": "mcp_server",
     "auth": "oauth",
-    "best_for": ["documentation", "knowledge-base", "project-management"],
+    "best_for": [
+      "documentation",
+      "knowledge-base",
+      "project-management"
+    ],
     "install": {
       "mcp_config": {
         "notion": {
           "command": "npx",
-          "args": ["-y", "@anthropic/mcp-server-notion"],
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-notion"
+          ],
           "env": {
             "NOTION_API_KEY": "${NOTION_API_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "NOTION_API_KEY",
+        "description": "Notion integration token"
+      }
+    ],
+    "signup_url": "https://www.notion.so/my-integrations"
   },
   {
     "id": "linear",
@@ -277,18 +450,32 @@
     "tier": 5,
     "type": "mcp_server",
     "auth": "oauth",
-    "best_for": ["project-management", "issue-tracking", "agile"],
+    "best_for": [
+      "project-management",
+      "issue-tracking",
+      "agile"
+    ],
     "install": {
       "mcp_config": {
         "linear": {
           "command": "npx",
-          "args": ["-y", "@anthropic/mcp-server-linear"],
+          "args": [
+            "-y",
+            "@anthropic/mcp-server-linear"
+          ],
           "env": {
             "LINEAR_API_KEY": "${LINEAR_API_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "LINEAR_API_KEY",
+        "description": "Linear API key"
+      }
+    ],
+    "signup_url": "https://linear.app/settings/api"
   },
   {
     "id": "agentmail",
@@ -298,18 +485,33 @@
     "tier": 5,
     "type": "mcp_server",
     "auth": "api_key",
-    "best_for": ["email", "outreach", "automation", "communication"],
+    "best_for": [
+      "email",
+      "outreach",
+      "automation",
+      "communication"
+    ],
     "install": {
       "mcp_config": {
         "agentmail": {
           "command": "npx",
-          "args": ["-y", "@agentmail/mcp-server"],
+          "args": [
+            "-y",
+            "@agentmail/mcp-server"
+          ],
           "env": {
             "AGENTMAIL_API_KEY": "${AGENTMAIL_API_KEY}"
           }
         }
       }
-    }
+    },
+    "env_vars": [
+      {
+        "name": "AGENTMAIL_API_KEY",
+        "description": "AgentMail API key"
+      }
+    ],
+    "signup_url": "https://agentmail.to"
   },
   {
     "id": "figma",
@@ -319,10 +521,21 @@
     "tier": 6,
     "type": "plugin",
     "auth": "api_key",
-    "best_for": ["design-to-code", "frontend", "ui-development"],
+    "best_for": [
+      "design-to-code",
+      "frontend",
+      "ui-development"
+    ],
     "install": {
       "plugin_command": "/plugin install figma@claude-plugins-official"
-    }
+    },
+    "env_vars": [
+      {
+        "name": "FIGMA_API_KEY",
+        "description": "Figma personal access token"
+      }
+    ],
+    "signup_url": "https://www.figma.com/developers/api#access-tokens"
   },
   {
     "id": "frontend-design",
@@ -332,7 +545,12 @@
     "tier": 6,
     "type": "plugin",
     "auth": "none",
-    "best_for": ["frontend", "ui-development", "web-dev", "design"],
+    "best_for": [
+      "frontend",
+      "ui-development",
+      "web-dev",
+      "design"
+    ],
     "install": {
       "plugin_command": "/plugin install frontend-design@claude-plugins-official"
     }

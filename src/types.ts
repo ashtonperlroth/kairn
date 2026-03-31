@@ -41,6 +41,8 @@ export interface RegistryTool {
   type: "mcp_server" | "plugin" | "hook";
   auth: "none" | "api_key" | "oauth" | "connection_string";
   best_for: string[];
+  env_vars?: { name: string; description: string }[];
+  signup_url?: string;
   install: {
     mcp_config?: Record<string, unknown>;
     plugin_command?: string;
