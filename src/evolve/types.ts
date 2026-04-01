@@ -32,6 +32,8 @@ export interface Score {
     mean: number;
     stddev: number;
   };
+  failureCategory?: 'harness' | 'task' | 'model' | 'repo' | 'unknown';
+  failureReason?: string;
 }
 
 // Full execution trace for a single task run

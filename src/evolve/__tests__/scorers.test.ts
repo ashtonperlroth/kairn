@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import type { Task } from '../types.js';
+import type { Task, Score } from '../types.js';
 import type { KairnConfig } from '../../types.js';
 
 // Mock the exec helper module
@@ -557,5 +557,58 @@ describe('scoreTask', () => {
     const result = await scoreTask(task, tempDir, 'output', '');
 
     expect(result.pass).toBe(true);
+  });
+});
+
+describe('classifyFailure', () => {
+  // Import directly since it's a pure function
+  let classifyFailure: (score: Score, stdout: string, stderr: string) => Score;
+
+  beforeEach(async () => {
+    const mod = await import('../scorers.js');
+    classifyFailure = mod.classifyFailure;
+  });
+
+  it('returns score unchanged when pass is true', () => {
+    const score: Score = { pass: true, score: 100 };
+    const result = classifyFailure(score, '', '');
+    expect(result.failureCategory).toBeUndefined();
+  });
+
+  it('classifies task failure from setup errors', () => {
+    const score: Score = { pass: false, score: 0 };
+    const result = classifyFailure(score, '', '[setup] Error: command not found');
+    expect(result.failureCategory).toBe('task');
+  });
+
+  it('classifies model failure from token limit errors', () => {
+    const score: Score = { pass: false, score: 0 };
+    const result = classifyFailure(score, 'token limit exceeded', '');
+    expect(result.failureCategory).toBe('model');
+  });
+
+  it('classifies model failure from rate limit errors', () => {
+    const score: Score = { pass: false, score: 0 };
+    const result = classifyFailure(score, '', 'Error: 429 rate limit');
+    expect(result.failureCategory).toBe('model');
+  });
+
+  it('classifies repo failure from merge conflicts', () => {
+    const score: Score = { pass: false, score: 0 };
+    const result = classifyFailure(score, 'merge conflict detected', '');
+    expect(result.failureCategory).toBe('repo');
+  });
+
+  it('classifies harness failure for partial scores (20-80%)', () => {
+    const score: Score = { pass: false, score: 55 };
+    const result = classifyFailure(score, 'task output', '');
+    expect(result.failureCategory).toBe('harness');
+    expect(result.failureReason).toContain('conventions');
+  });
+
+  it('classifies as unknown when no pattern matches and score is low', () => {
+    const score: Score = { pass: false, score: 5 };
+    const result = classifyFailure(score, 'some output', 'some error');
+    expect(result.failureCategory).toBe('unknown');
   });
 });

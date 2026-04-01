@@ -250,6 +250,63 @@ export async function rubricScorer(
  * LLM-based scorers (llm-judge, rubric) require a KairnConfig.
  * When config is not provided, they fall back to passFailScorer.
  */
+/**
+ * Classify why a task failed based on trace data.
+ * Only called for non-passing scores.
+ */
+export function classifyFailure(
+  score: Score,
+  stdout: string,
+  stderr: string,
+): Score {
+  if (score.pass) return score;
+
+  const combined = `${stdout}\n${stderr}`.toLowerCase();
+  const scoreValue = score.score ?? 0;
+
+  let failureCategory: Score['failureCategory'] = 'unknown';
+  let failureReason = '';
+
+  // Setup/task errors: task definition is broken or ambiguous
+  if (
+    stderr.includes('[setup]') && stderr.includes('Error') ||
+    combined.includes('command not found') ||
+    combined.includes('no such file or directory')
+  ) {
+    failureCategory = 'task';
+    failureReason = 'Task setup failed or references missing resources';
+  }
+  // Model errors: API failures, token limits, context overflow
+  else if (
+    combined.includes('token limit') ||
+    combined.includes('context length') ||
+    combined.includes('rate limit') ||
+    combined.includes('api error') ||
+    combined.includes('429') ||
+    combined.includes('overloaded')
+  ) {
+    failureCategory = 'model';
+    failureReason = 'Model API error, token limit, or rate limit';
+  }
+  // Repo errors: pre-existing build failures, dirty state
+  else if (
+    combined.includes('build failed') && combined.includes('before') ||
+    combined.includes('merge conflict') ||
+    combined.includes('git dirty') ||
+    combined.includes('uncommitted changes')
+  ) {
+    failureCategory = 'repo';
+    failureReason = 'Pre-existing repo issues (build failure, dirty state)';
+  }
+  // Harness errors: agent tried but got it wrong (partial score)
+  else if (scoreValue >= 20 && scoreValue < 80) {
+    failureCategory = 'harness';
+    failureReason = 'Agent attempted the task but did not follow harness conventions';
+  }
+
+  return { ...score, failureCategory, failureReason };
+}
+
 export async function scoreTask(
   task: Task,
   workspacePath: string,
@@ -257,15 +314,20 @@ export async function scoreTask(
   stderr: string,
   config?: KairnConfig,
 ): Promise<Score> {
+  let score: Score;
   if (task.scoring === 'pass-fail') {
-    return passFailScorer(task, workspacePath, stdout, stderr);
+    score = await passFailScorer(task, workspacePath, stdout, stderr);
+  } else if (task.scoring === 'llm-judge' && config) {
+    score = await llmJudgeScorer(task, workspacePath, stdout, stderr, config);
+  } else if (task.scoring === 'rubric' && config) {
+    score = await rubricScorer(task, workspacePath, stdout, stderr, config);
+  } else {
+    score = await passFailScorer(task, workspacePath, stdout, stderr);
   }
-  if (task.scoring === 'llm-judge' && config) {
-    return llmJudgeScorer(task, workspacePath, stdout, stderr, config);
+
+  if (!score.pass) {
+    score = classifyFailure(score, stdout, stderr);
   }
-  if (task.scoring === 'rubric' && config) {
-    return rubricScorer(task, workspacePath, stdout, stderr, config);
-  }
-  // Fallback to pass-fail if no config provided for LLM-based scorers
-  return passFailScorer(task, workspacePath, stdout, stderr);
+
+  return score;
 }
