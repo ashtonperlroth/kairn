@@ -175,8 +175,8 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Evolution leaderboard (table of iterations × tasks × scores)
 - [x] `kairn evolve diff <iter1> <iter2>` — show harness changes between iterations
 
-### v2.2.1 — Mutation Scope Expansion (Bugfix) ✅ SHIPPED
-> Bugs 3, 4, 5 from initial Kairn-on-Kairn test run. Mutations additive-only, MCP outside scope, proposer biased toward growth.
+### v2.2.1 ✅ SHIPPED
+> Mutations were additive-only; MCP configuration excluded from scope; proposer biased toward growth rather than optimization.
 
 - [x] Add `delete_section` and `delete_file` mutation actions to types and mutator
 - [x] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
@@ -184,16 +184,16 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
 - [x] Tests: delete mutations, MCP snapshot, balanced proposer
 
-### v2.2.2 — Proposer JSON Fix (Critical Bugfix) [IN PROGRESS]
-> Discovered during Kairn-on-Kairn test run post-v2.2.1. **#1 blocker:** Proposer returns English prose instead of JSON — no mutations are ever applied despite loop running fine.
+### v2.2.2 ✅ SHIPPED
+> **#1 blocker fixed:** Proposer was returning English prose instead of JSON. Added JSON mode to LLM call with fallback parsing.
 
-- [ ] **CRITICAL:** Add `jsonMode` to `callLLM()` with assistant prefill (Anthropic) and `response_format` (OpenAI)
-- [ ] **CRITICAL:** Robust JSON extraction in parser — handle prose-wrapped JSON (first `{` to last `}`)
-- [ ] Wire `jsonMode: true` in proposer LLM call
-- [ ] Tests: JSON extraction from prose, assistant prefill behavior
+- [x] Add `jsonMode` to `callLLM()` with assistant prefill (Anthropic) and `response_format` (OpenAI)
+- [x] Robust JSON extraction in parser — handle prose-wrapped JSON (first `{` to last `}`)
+- [x] Wire `jsonMode: true` in proposer LLM call
+- [x] Tests: JSON extraction from prose, assistant prefill behavior
 
-### v2.2.3 — Mutation Scope Expansion (Bugfix)
-> After v2.2.2 fixes proposer JSON. Now enable the loop to remove bloat and optimize MCP configuration — not just add instructions.
+### v2.2.3 [NEXT]
+> After v2.2.2 fixes proposer JSON. Now enable the loop to remove bloat and optimize MCP configuration — not just add instructions. This rebalances the search from growth-only to growth-and-pruning.
 
 - [ ] Add `delete_section` and `delete_file` mutation actions to types and mutator
 - [ ] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
@@ -203,20 +203,21 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [ ] **Integration test:** `kairn evolve run --iterations 3` applies mutations and improves score (confirms loop actually evolves)
 
 ### v2.3.0 — Advanced Scoring & Search + Quick Wins
-> After v2.2.3, improve evolution visibility, iteration speed, and scoring capabilities.
+> After v2.2.3, improve evolution visibility, iteration speed, scoring capabilities, and harness insights. Three tiers of improvements.
 
-**Quick Wins:**
+**Tier 1: Quick Wins (DX)**
 - [ ] Fix hardcoded CLI version → read from package.json dynamically
 - [ ] Parallel task evaluation (promise-based, concurrency-limited) — 20 min → 5 min per iteration
 - [ ] `kairn evolve apply [--iter N]` — copy best harness to .claude/ with diff preview + git commit
 - [ ] Capture tool calls & MCP usage from runner output → tool_calls.json
 
-**Medium Features (harness insights):**
+**Tier 2: Medium Features (Harness Insights)**
 - [ ] Harness utilization metrics (which tools/agents/rules were used vs available)
 - [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
 - [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads — ~85% token savings)
+- [ ] Smart MCP recommendations: detect tool-use gaps, search marketplaces for matching servers
 
-**Core v2.3 Features:**
+**Tier 3: Core v2.3 Features (Search Quality)**
 - [ ] Multi-objective scoring (correctness × efficiency × cost) with weighted aggregation
 - [ ] Search strategy selection: greedy (default), best-of-N, population-based
 - [ ] Held-out validation set (train/test split for tasks to prevent overfitting)
@@ -233,12 +234,38 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 
 ---
 
-## v3.x — Hosted Compilation
+## v3.x — Hosted Compilation & Extended Integration
 
+### Harness Generator Improvements (Quality of Generation)
+- [ ] **Upgrade agent template quality** (learn from OMC's 19 agent definitions)
+  - [ ] Read-only agents use `disallowedTools: Write, Edit` to prevent accidental modifications
+  - [ ] Every agent lists explicit "NOT responsible for" constraints
+  - [ ] `<Why_This_Matters>` sections explain reasoning behind rules
+  - [ ] Model tiering: Opus for reasoning, Sonnet for execution, Haiku for speed
+  - [ ] Worker Preamble Protocol notes for orchestrators
+- [ ] Generate per-environment **WORKFLOWS.md** walkthrough
+  - [ ] Context-aware workflows: "Ship a Feature", "Debug a Bug", "Evolve Environment"
+  - [ ] Regenerate walkthrough when evolve mutations change agent roster/commands
+
+### Extended Marketplaces & Plugins
+- [ ] **Plugin search** — search Claude Code plugin marketplaces during compilation
+  - [ ] Three official marketplaces: anthropics, omc, openai-codex
+  - [ ] Recommend plugins when agent capabilities are needed
+  - [ ] MCP servers + plugins together form complete harness
+  - [ ] Trust tiers: official = medium, community = low
+- [ ] **MCP marketplace integration** — Smithery, mcp.run, glama.ai, awesome-mcp-servers
+  - [ ] `kairn registry search --plugins <query>` — find Claude Code plugins
+  - [ ] `kairn registry search --mcp <query>` — find MCP servers
+  - [ ] Proposer suggests marketplace tools when traces show tool-use gaps
+- [ ] **Agent template library** (parameterized by project type)
+  - [ ] @architect, @implementer, @reviewer, @debugger, @explorer, @test-engineer, @security-reviewer
+  - [ ] Proposer can suggest adding/removing agents during evolution
+
+### Hosted & Web Platform
 - [ ] Free hosted compilation endpoint — no local LLM key needed
 - [ ] Web dashboard for environment management
 - [ ] Template marketplace — share and discover environments
-- [ ] Detect and adapt to existing user MCP servers
+- [ ] Detect and adapt to existing user MCP servers and Claude Code plugins
 
 ---
 
@@ -266,3 +293,6 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 4. **Transparent.** Users can inspect every generated file.
 5. **Security by default.** Every environment includes deny rules and security guidance.
 6. **Self-improving.** Environments should get better with use, not just at generation time.
+7. **Composable infrastructure.** MCP servers + Claude Code plugins together form a complete harness. Search both marketplaces.
+8. **Learn from best practice.** OMC's agent design (role scoping, Why_This_Matters, model tiers) should be the standard for all generated agents.
+9. **Teach the harness.** Generated environments include WORKFLOWS.md so users know how to use them, regenerated when the harness evolves.
