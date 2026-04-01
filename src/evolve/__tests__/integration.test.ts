@@ -290,13 +290,28 @@ describe('Evolution loop integration', () => {
       diffPatch: '+## Bad advice',
     });
 
-    // Iteration 1: score 40 — REGRESSION!
+    // Iteration 1: score 40 — REGRESSION! Proposer called again with new approach.
     mockEvaluateAll.mockResolvedValueOnce({
       results: { 'task-1': { pass: false, score: 40 } },
       aggregate: 40,
     });
+    // After rollback, proposer tries new mutations on best (iter 0) harness
+    mockPropose.mockResolvedValueOnce(
+      makeProposal([
+        {
+          file: 'CLAUDE.md',
+          action: 'add_section',
+          newText: '## Better advice\n\nAlways run tests.',
+          rationale: 'Previous mutation was bad, try different approach',
+        },
+      ]),
+    );
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: '+## Better advice',
+    });
 
-    // Iteration 2: back on best harness from iter 0, score 80
+    // Iteration 2: evaluates NEW mutated harness, score 80
     mockEvaluateAll.mockResolvedValueOnce({
       results: { 'task-1': { pass: true, score: 80 } },
       aggregate: 80,
@@ -309,13 +324,12 @@ describe('Evolution loop integration', () => {
       makeEvolveConfig({ maxIterations: 3 }),
     );
 
-    // Loop rolled back to iteration 0's harness for iteration 2
-    expect(mockCopyDir).toHaveBeenCalledWith(
-      path.join(workspace, 'iterations', '0', 'harness'),
-      path.join(workspace, 'iterations', '2', 'harness'),
-    );
+    // Proposer called twice: after iter 0 (normal) and after iter 1 (rollback)
+    expect(mockPropose).toHaveBeenCalledTimes(2);
+    // applyMutations called twice: iter 0→1 and rollback best→2
+    expect(mockApplyMutations).toHaveBeenCalledTimes(2);
 
-    // Best score came from iteration 2 (after rollback)
+    // Best score came from iteration 2 (with new mutations after rollback)
     expect(result.bestScore).toBe(80);
     expect(result.bestIteration).toBe(2);
     expect(result.iterations).toHaveLength(3);

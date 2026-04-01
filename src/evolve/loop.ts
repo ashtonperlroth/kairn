@@ -168,20 +168,45 @@ export async function evolve(
       await writeIterationLog(workspacePath, rollbackLog);
       history.push(rollbackLog);
 
-      // Copy best harness to next iteration (if not last)
+      // Instead of just copying the best harness unchanged, propose NEW mutations
+      // on the best harness so the next iteration has something different to evaluate.
+      const bestHarnessPath = path.join(
+        workspacePath,
+        'iterations',
+        bestIteration.toString(),
+        'harness',
+      );
+
       if (iter + 1 < evolveConfig.maxIterations) {
-        const nextIterDir = path.join(
-          workspacePath,
-          'iterations',
-          (iter + 1).toString(),
-        );
-        const bestHarnessPath = path.join(
-          workspacePath,
-          'iterations',
-          bestIteration.toString(),
-          'harness',
-        );
-        await copyDir(bestHarnessPath, path.join(nextIterDir, 'harness'));
+        onProgress?.({ type: 'proposing', iteration: iter, message: 'Proposing new mutations after rollback' });
+        try {
+          let rollbackProposal = await propose(
+            iter,
+            workspacePath,
+            bestHarnessPath,
+            history,
+            tasks,
+            kairnConfig,
+            evolveConfig.proposerModel,
+          );
+          if (rollbackProposal.mutations.length > evolveConfig.maxMutationsPerIteration) {
+            rollbackProposal = {
+              ...rollbackProposal,
+              mutations: rollbackProposal.mutations.slice(0, evolveConfig.maxMutationsPerIteration),
+            };
+          }
+          const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
+          await applyMutations(bestHarnessPath, nextIterDir, rollbackProposal.mutations);
+          onProgress?.({
+            type: 'mutations-applied',
+            iteration: iter,
+            mutationCount: rollbackProposal.mutations.length,
+          });
+        } catch {
+          // Proposer or mutation failed — fall back to copying best harness unchanged
+          const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
+          await copyDir(bestHarnessPath, path.join(nextIterDir, 'harness'));
+        }
       }
       continue;
     }

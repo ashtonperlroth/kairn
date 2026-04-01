@@ -259,7 +259,7 @@ describe('evolve', () => {
     expect(result.baselineScore).toBe(60);
   });
 
-  it('rolls back on regression (score drops below best)', async () => {
+  it('rolls back on regression and proposes new mutations on best harness', async () => {
     const workspace = await createWorkspace([0, 1, 2]);
     const tasks = [makeTask('task-1')];
     const proposal = makeProposal();
@@ -275,13 +275,19 @@ describe('evolve', () => {
       diffPatch: 'some diff',
     });
 
-    // Iteration 1: score 50 — REGRESSION!
+    // Iteration 1: score 50 — REGRESSION! Proposer called again on best harness.
     mockEvaluateAll.mockResolvedValueOnce({
       results: { 'task-1': { pass: false, score: 50 } },
       aggregate: 50,
     });
+    // After rollback, proposer is called to try new mutations on best (iter 0) harness
+    mockPropose.mockResolvedValueOnce(makeProposal({ reasoning: 'Different approach' }));
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: 'new diff',
+    });
 
-    // Iteration 2: should use harness from iteration 0 (best), score 80
+    // Iteration 2: evaluates the NEW mutated harness, score 80
     mockEvaluateAll.mockResolvedValueOnce({
       results: { 'task-1': { pass: true, score: 80 } },
       aggregate: 80,
@@ -294,13 +300,11 @@ describe('evolve', () => {
       makeEvolveConfig({ maxIterations: 3 }),
     );
 
-    // copyDir should have been called to rollback (copy best harness to iter 2)
-    expect(mockCopyDir).toHaveBeenCalledWith(
-      path.join(workspace, 'iterations', '0', 'harness'),
-      path.join(workspace, 'iterations', '2', 'harness'),
-    );
-
-    // Regression logged but best score updated when iter 2 succeeds
+    // Proposer called twice: once after iter 0 (normal), once after iter 1 (rollback)
+    expect(mockPropose).toHaveBeenCalledTimes(2);
+    // applyMutations called twice: once for iter 0→1, once for rollback best→2
+    expect(mockApplyMutations).toHaveBeenCalledTimes(2);
+    // Best score came from iter 2 with the new mutations
     expect(result.bestScore).toBe(80);
     expect(result.bestIteration).toBe(2);
     expect(result.iterations).toHaveLength(3);
