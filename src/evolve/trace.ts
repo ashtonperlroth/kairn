@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type { Trace, Score } from './types.js';
+import type { Trace, Score, IterationLog, Proposal } from './types.js';
 
 /**
  * Load a trace from filesystem.
@@ -128,4 +128,73 @@ export async function traceExists(traceDir: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Write iteration log files to .kairn-evolve/iterations/{N}/.
+ * Creates: scores.json, proposer_reasoning.md, mutation_diff.patch
+ */
+export async function writeIterationLog(
+  workspacePath: string,
+  log: IterationLog,
+): Promise<void> {
+  const iterDir = path.join(workspacePath, 'iterations', log.iteration.toString());
+  await fs.mkdir(iterDir, { recursive: true });
+
+  // Write scores
+  await fs.writeFile(
+    path.join(iterDir, 'scores.json'),
+    JSON.stringify({ score: log.score, taskResults: log.taskResults }, null, 2),
+    'utf-8',
+  );
+
+  // Write proposer reasoning
+  await fs.writeFile(
+    path.join(iterDir, 'proposer_reasoning.md'),
+    log.proposal?.reasoning ?? 'Baseline evaluation (no proposal)',
+    'utf-8',
+  );
+
+  // Write mutation diff
+  await fs.writeFile(
+    path.join(iterDir, 'mutation_diff.patch'),
+    log.diffPatch ?? '',
+    'utf-8',
+  );
+}
+
+/**
+ * Load an iteration log from .kairn-evolve/iterations/{N}/.
+ * Returns null if the iteration directory doesn't exist.
+ */
+export async function loadIterationLog(
+  workspacePath: string,
+  iteration: number,
+): Promise<IterationLog | null> {
+  const iterDir = path.join(workspacePath, 'iterations', iteration.toString());
+
+  try {
+    await fs.access(iterDir);
+  } catch {
+    return null;
+  }
+
+  const scoresStr = await fs.readFile(path.join(iterDir, 'scores.json'), 'utf-8').catch(() => '{}');
+  const reasoning = await fs.readFile(path.join(iterDir, 'proposer_reasoning.md'), 'utf-8').catch(() => '');
+  const diffPatch = await fs.readFile(path.join(iterDir, 'mutation_diff.patch'), 'utf-8').catch(() => '');
+
+  const scoresData = JSON.parse(scoresStr) as { score?: number; taskResults?: Record<string, Score> };
+
+  const proposal: Proposal | null = reasoning
+    ? { reasoning, mutations: [], expectedImpact: {} }
+    : null;
+
+  return {
+    iteration,
+    score: scoresData.score ?? 0,
+    taskResults: scoresData.taskResults ?? {},
+    proposal,
+    diffPatch: diffPatch || null,
+    timestamp: '',
+  };
 }

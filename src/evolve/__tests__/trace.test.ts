@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { loadTrace, loadIterationTraces, writeTrace, writeScore, traceExists } from '../trace.js';
-import type { Trace, Score } from '../types.js';
+import { loadTrace, loadIterationTraces, writeTrace, writeScore, traceExists, writeIterationLog, loadIterationLog } from '../trace.js';
+import type { Trace, Score, IterationLog, Proposal } from '../types.js';
 
 function makeTrace(overrides: Partial<Trace> = {}): Trace {
   return {
@@ -328,5 +328,224 @@ describe('traceExists', () => {
 
     const result = await traceExists(traceDir);
     expect(result).toBe(false);
+  });
+});
+
+describe('writeIterationLog', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = path.join('/tmp', `kairn-iterlog-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await fs.mkdir(tempDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('creates the iterations/{N} directory', async () => {
+    const log: IterationLog = {
+      iteration: 0,
+      score: 0.8,
+      taskResults: {},
+      proposal: null,
+      diffPatch: null,
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    await writeIterationLog(tempDir, log);
+    const stat = await fs.stat(path.join(tempDir, 'iterations', '0'));
+    expect(stat.isDirectory()).toBe(true);
+  });
+
+  it('writes scores.json with score and taskResults', async () => {
+    const taskResults: Record<string, Score> = {
+      'task-a': { pass: true, score: 1.0 },
+      'task-b': { pass: false, score: 0.4 },
+    };
+    const log: IterationLog = {
+      iteration: 1,
+      score: 0.7,
+      taskResults,
+      proposal: null,
+      diffPatch: null,
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    await writeIterationLog(tempDir, log);
+    const content = await fs.readFile(
+      path.join(tempDir, 'iterations', '1', 'scores.json'),
+      'utf-8',
+    );
+    const parsed = JSON.parse(content) as { score: number; taskResults: Record<string, Score> };
+    expect(parsed.score).toBe(0.7);
+    expect(parsed.taskResults).toEqual(taskResults);
+  });
+
+  it('writes proposer_reasoning.md from proposal.reasoning', async () => {
+    const proposal: Proposal = {
+      reasoning: 'This is the proposer reasoning text',
+      mutations: [],
+      expectedImpact: {},
+    };
+    const log: IterationLog = {
+      iteration: 2,
+      score: 0.9,
+      taskResults: {},
+      proposal,
+      diffPatch: null,
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    await writeIterationLog(tempDir, log);
+    const content = await fs.readFile(
+      path.join(tempDir, 'iterations', '2', 'proposer_reasoning.md'),
+      'utf-8',
+    );
+    expect(content).toBe('This is the proposer reasoning text');
+  });
+
+  it('writes baseline message to proposer_reasoning.md when proposal is null', async () => {
+    const log: IterationLog = {
+      iteration: 0,
+      score: 0.5,
+      taskResults: {},
+      proposal: null,
+      diffPatch: null,
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    await writeIterationLog(tempDir, log);
+    const content = await fs.readFile(
+      path.join(tempDir, 'iterations', '0', 'proposer_reasoning.md'),
+      'utf-8',
+    );
+    expect(content).toBe('Baseline evaluation (no proposal)');
+  });
+
+  it('writes mutation_diff.patch with diffPatch content', async () => {
+    const log: IterationLog = {
+      iteration: 3,
+      score: 0.6,
+      taskResults: {},
+      proposal: null,
+      diffPatch: '--- a/CLAUDE.md\n+++ b/CLAUDE.md\n@@ -1 +1 @@\n-old\n+new',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    await writeIterationLog(tempDir, log);
+    const content = await fs.readFile(
+      path.join(tempDir, 'iterations', '3', 'mutation_diff.patch'),
+      'utf-8',
+    );
+    expect(content).toBe('--- a/CLAUDE.md\n+++ b/CLAUDE.md\n@@ -1 +1 @@\n-old\n+new');
+  });
+
+  it('writes empty string to mutation_diff.patch when diffPatch is null', async () => {
+    const log: IterationLog = {
+      iteration: 0,
+      score: 0.5,
+      taskResults: {},
+      proposal: null,
+      diffPatch: null,
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    await writeIterationLog(tempDir, log);
+    const content = await fs.readFile(
+      path.join(tempDir, 'iterations', '0', 'mutation_diff.patch'),
+      'utf-8',
+    );
+    expect(content).toBe('');
+  });
+});
+
+describe('loadIterationLog', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = path.join('/tmp', `kairn-iterlog-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await fs.mkdir(tempDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns null when the iteration directory does not exist', async () => {
+    const result = await loadIterationLog(tempDir, 99);
+    expect(result).toBeNull();
+  });
+
+  it('round-trips a log written with writeIterationLog', async () => {
+    const taskResults: Record<string, Score> = {
+      'task-a': { pass: true, score: 1.0 },
+    };
+    const proposal: Proposal = {
+      reasoning: 'Round-trip reasoning',
+      mutations: [],
+      expectedImpact: { 'task-a': 'should improve' },
+    };
+    const original: IterationLog = {
+      iteration: 1,
+      score: 0.85,
+      taskResults,
+      proposal,
+      diffPatch: 'some diff content',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+
+    await writeIterationLog(tempDir, original);
+    const loaded = await loadIterationLog(tempDir, 1);
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.iteration).toBe(1);
+    expect(loaded!.score).toBe(0.85);
+    expect(loaded!.taskResults).toEqual(taskResults);
+    expect(loaded!.proposal?.reasoning).toBe('Round-trip reasoning');
+    expect(loaded!.diffPatch).toBe('some diff content');
+  });
+
+  it('returns score 0 and empty taskResults when scores.json is missing', async () => {
+    const iterDir = path.join(tempDir, 'iterations', '2');
+    await fs.mkdir(iterDir, { recursive: true });
+    // No scores.json, but directory exists
+
+    const loaded = await loadIterationLog(tempDir, 2);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.score).toBe(0);
+    expect(loaded!.taskResults).toEqual({});
+  });
+
+  it('returns null proposal when proposer_reasoning.md is missing', async () => {
+    const iterDir = path.join(tempDir, 'iterations', '3');
+    await fs.mkdir(iterDir, { recursive: true });
+
+    const loaded = await loadIterationLog(tempDir, 3);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.proposal).toBeNull();
+  });
+
+  it('returns null diffPatch when mutation_diff.patch is empty', async () => {
+    const log: IterationLog = {
+      iteration: 4,
+      score: 0.5,
+      taskResults: {},
+      proposal: null,
+      diffPatch: null,
+      timestamp: '',
+    };
+    await writeIterationLog(tempDir, log);
+    const loaded = await loadIterationLog(tempDir, 4);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.diffPatch).toBeNull();
+  });
+
+  it('returns the correct iteration number', async () => {
+    const log: IterationLog = {
+      iteration: 7,
+      score: 0.5,
+      taskResults: {},
+      proposal: null,
+      diffPatch: null,
+      timestamp: '',
+    };
+    await writeIterationLog(tempDir, log);
+    const loaded = await loadIterationLog(tempDir, 7);
+    expect(loaded!.iteration).toBe(7);
   });
 });
