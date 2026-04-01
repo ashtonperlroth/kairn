@@ -5,12 +5,6 @@ import { loadIterationTraces } from './trace.js';
 import type { Task, Trace, Proposal, Mutation, IterationLog } from './types.js';
 import type { KairnConfig } from '../types.js';
 
-/**
- * System prompt for the proposer agent.
- *
- * Instructs the LLM to analyze execution traces, diagnose root causes
- * of task failures, and propose minimal, targeted harness mutations.
- */
 export const PROPOSER_SYSTEM_PROMPT = `You are an expert agent environment optimizer. Your job is to improve a Claude Code
 agent environment (.claude/ directory) based on execution traces from real tasks.
 
@@ -102,10 +96,6 @@ export async function readHarnessFiles(
   return result;
 }
 
-/**
- * Truncate a string to the last `limit` characters.
- * Prepends a truncation notice if the string was shortened.
- */
 function truncateStdout(stdout: string, limit: number): string {
   if (stdout.length <= limit) {
     return stdout;
@@ -264,7 +254,6 @@ function buildHistorySection(history: IterationLog[], budget: number): string {
  * @throws Error if the response is not valid JSON or lacks required fields.
  */
 export function parseProposerResponse(raw: string): Proposal {
-  // Strip leading/trailing whitespace
   let cleaned = raw.trim();
 
   // Strip markdown code fences (```json ... ``` or ``` ... ```)
@@ -273,12 +262,23 @@ export function parseProposerResponse(raw: string): Proposal {
     cleaned = fenceMatch[1].trim();
   }
 
-  // Parse JSON
   let parsed: unknown;
   try {
     parsed = JSON.parse(cleaned);
   } catch {
-    throw new Error(`Proposer returned invalid JSON: ${cleaned.slice(0, 200)}`);
+    // Fallback: extract JSON object from prose-wrapped text (first '{' to last '}')
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const extracted = cleaned.slice(firstBrace, lastBrace + 1);
+      try {
+        parsed = JSON.parse(extracted);
+      } catch {
+        throw new Error(`Proposer returned invalid JSON: ${cleaned.slice(0, 200)}`);
+      }
+    } else {
+      throw new Error(`Proposer returned invalid JSON: ${cleaned.slice(0, 200)}`);
+    }
   }
 
   if (typeof parsed !== 'object' || parsed === null) {
@@ -287,17 +287,14 @@ export function parseProposerResponse(raw: string): Proposal {
 
   const obj = parsed as Record<string, unknown>;
 
-  // Validate reasoning
   if (typeof obj['reasoning'] !== 'string') {
     throw new Error('Proposer response missing required "reasoning" string field');
   }
 
-  // Validate mutations
   if (!Array.isArray(obj['mutations'])) {
     throw new Error('Proposer response missing required "mutations" array field');
   }
 
-  // Parse and validate each mutation
   const mutations: Mutation[] = [];
   for (const entry of obj['mutations'] as unknown[]) {
     if (typeof entry !== 'object' || entry === null) {
@@ -320,7 +317,6 @@ export function parseProposerResponse(raw: string): Proposal {
       continue;
     }
 
-    // Validate action type
     if (action !== 'replace' && action !== 'add_section' && action !== 'create_file') {
       continue;
     }
@@ -384,22 +380,17 @@ export async function propose(
   config: KairnConfig,
   proposerModel: string,
 ): Promise<Proposal> {
-  // 1. Read harness files
   const harnessFiles = await readHarnessFiles(harnessPath);
-
-  // 2. Load traces for this iteration
   const traces = await loadIterationTraces(workspacePath, iteration);
-
-  // 3. Build user message
   const userMessage = buildProposerUserMessage(harnessFiles, traces, tasks, history);
 
-  // 4. Call LLM with proposer model override
+  // Override model with proposer-specific model
   const proposerConfig: KairnConfig = { ...config, model: proposerModel };
   const response = await callLLM(proposerConfig, userMessage, {
     systemPrompt: PROPOSER_SYSTEM_PROMPT,
     maxTokens: 8192,
+    jsonMode: true,
   });
 
-  // 5. Parse response
   return parseProposerResponse(response);
 }

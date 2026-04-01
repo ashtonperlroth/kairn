@@ -70,26 +70,36 @@ export function classifyError(err: unknown, provider: string): string {
 export async function callLLM(
   config: KairnConfig,
   userMessage: string,
-  options: { maxTokens?: number; systemPrompt: string }
+  options: { maxTokens?: number; systemPrompt: string; jsonMode?: boolean }
 ): Promise<string> {
   const maxTokens = options.maxTokens ?? 8192;
-  const systemPrompt = options.systemPrompt;
+  const { systemPrompt } = options;
+  const jsonMode = options.jsonMode ?? false;
   const providerName = getProviderName(config.provider);
 
   if (config.provider === "anthropic") {
     const client = new Anthropic({ apiKey: config.api_key });
+
+    // Build messages array; assistant prefill forces JSON start when jsonMode is on
+    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+      { role: "user", content: userMessage },
+    ];
+    if (jsonMode) {
+      messages.push({ role: "assistant", content: "{" });
+    }
+
     try {
       const response = await client.messages.create({
         model: config.model,
         max_tokens: maxTokens,
         system: systemPrompt,
-        messages: [{ role: "user", content: userMessage }],
+        messages,
       });
       const textBlock = response.content.find((block) => block.type === "text");
       if (!textBlock || textBlock.type !== "text") {
         throw new Error("No text response from compiler LLM");
       }
-      return textBlock.text;
+      return jsonMode ? `{${textBlock.text}` : textBlock.text;
     } catch (err) {
       throw new Error(classifyError(err, providerName));
     }
@@ -109,6 +119,7 @@ export async function callLLM(
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
       ],
+      ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
     });
     const text = response.choices[0]?.message?.content;
     if (!text) {

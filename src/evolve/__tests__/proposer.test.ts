@@ -164,9 +164,6 @@ describe('PROPOSER_SYSTEM_PROMPT', () => {
 // ─── parseProposerResponse ──────────────────────────────────────────────────
 
 describe('parseProposerResponse', () => {
-  // We need to import the function. It may or may not be exported directly.
-  // We'll test it through the module. If not exported, test via propose().
-
   it('parses valid JSON response', async () => {
     const { parseProposerResponse } = await import('../proposer.js');
 
@@ -353,6 +350,39 @@ describe('parseProposerResponse', () => {
     const result = parseProposerResponse(raw);
     expect(result.expectedImpact).toEqual({});
   });
+
+  it('extracts JSON from prose-wrapped response', async () => {
+    const { parseProposerResponse } = await import('../proposer.js');
+
+    const jsonObj = {
+      reasoning: 'The agent failed because CLAUDE.md lacks build instructions.',
+      mutations: [
+        {
+          file: 'CLAUDE.md',
+          action: 'add_section',
+          new_text: '## Build\nnpm run build',
+          rationale: 'Agent needs build instructions.',
+        },
+      ],
+      expected_impact: { 'task-1': '+20%' },
+    };
+    const raw = `Looking at the traces, I need to analyze why the tasks failed. Here is my analysis:\n\n${JSON.stringify(jsonObj)}\n\nThat concludes my analysis.`;
+
+    const result = parseProposerResponse(raw);
+
+    expect(result.reasoning).toBe('The agent failed because CLAUDE.md lacks build instructions.');
+    expect(result.mutations).toHaveLength(1);
+    expect(result.mutations[0].file).toBe('CLAUDE.md');
+    expect(result.expectedImpact['task-1']).toBe('+20%');
+  });
+
+  it('throws on pure English text with no JSON object', async () => {
+    const { parseProposerResponse } = await import('../proposer.js');
+
+    const raw = 'Looking at the traces, I can see that task-1 failed because the agent did not have build instructions. I recommend adding a build section.';
+
+    expect(() => parseProposerResponse(raw)).toThrow('Proposer returned invalid JSON');
+  });
 });
 
 // ─── buildProposerUserMessage ───────────────────────────────────────────────
@@ -458,12 +488,10 @@ describe('buildProposerUserMessage', () => {
 
 // ─── propose (integration with mocked LLM) ─────────────────────────────────
 
-// Mock callLLM
 vi.mock('../../llm.js', () => ({
   callLLM: vi.fn(),
 }));
 
-// Mock loadIterationTraces
 vi.mock('../trace.js', () => ({
   loadIterationTraces: vi.fn(),
 }));
@@ -595,9 +623,11 @@ describe('propose', () => {
     const calledOptions = mockedCallLLM.mock.calls[0][2] as {
       systemPrompt: string;
       maxTokens?: number;
+      jsonMode?: boolean;
     };
     expect(calledOptions.systemPrompt).toBe(PROPOSER_SYSTEM_PROMPT);
     expect(calledOptions.maxTokens).toBe(8192);
+    expect(calledOptions.jsonMode).toBe(true);
   });
 
   it('propagates LLM errors', async () => {

@@ -2,11 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { classifyError, callLLM } from "../llm.js";
 import type { KairnConfig } from "../types.js";
 
-// Shared mock references for SDK create methods
 const anthropicCreateMock = vi.fn();
 const openaiCreateMock = vi.fn();
 
-// Mock the external SDK modules with class-style constructors
 vi.mock("@anthropic-ai/sdk", () => {
   return {
     default: class MockAnthropic {
@@ -277,5 +275,81 @@ describe("callLLM", () => {
     await expect(
       callLLM(config, "test", { systemPrompt: "prompt" })
     ).rejects.toThrow("No text response");
+  });
+
+  it("uses assistant prefill for Anthropic when jsonMode is true", async () => {
+    anthropicCreateMock.mockResolvedValueOnce({
+      content: [{ type: "text", text: '"reasoning": "analysis", "mutations": []}' }],
+    });
+
+    const config = makeConfig({ provider: "anthropic" });
+    const result = await callLLM(config, "test", {
+      systemPrompt: "prompt",
+      jsonMode: true,
+    });
+
+    expect(result).toBe('{"reasoning": "analysis", "mutations": []}');
+    expect(anthropicCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          { role: "user", content: "test" },
+          { role: "assistant", content: "{" },
+        ],
+      })
+    );
+  });
+
+  it("uses response_format for OpenAI when jsonMode is true", async () => {
+    openaiCreateMock.mockResolvedValueOnce({
+      choices: [{ message: { content: '{"result": "ok"}' } }],
+    });
+
+    const config = makeConfig({ provider: "openai", model: "gpt-4.1" });
+    const result = await callLLM(config, "test", {
+      systemPrompt: "prompt",
+      jsonMode: true,
+    });
+
+    expect(result).toBe('{"result": "ok"}');
+    expect(openaiCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response_format: { type: "json_object" },
+      })
+    );
+  });
+
+  it("does not use assistant prefill when jsonMode is false (Anthropic)", async () => {
+    anthropicCreateMock.mockResolvedValueOnce({
+      content: [{ type: "text", text: "plain text response" }],
+    });
+
+    const config = makeConfig({ provider: "anthropic" });
+    const result = await callLLM(config, "test", {
+      systemPrompt: "prompt",
+      jsonMode: false,
+    });
+
+    expect(result).toBe("plain text response");
+    expect(anthropicCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "test" }],
+      })
+    );
+  });
+
+  it("does not use response_format when jsonMode is false (OpenAI)", async () => {
+    openaiCreateMock.mockResolvedValueOnce({
+      choices: [{ message: { content: "plain openai response" } }],
+    });
+
+    const config = makeConfig({ provider: "openai", model: "gpt-4.1" });
+    const result = await callLLM(config, "test", {
+      systemPrompt: "prompt",
+      jsonMode: false,
+    });
+
+    expect(result).toBe("plain openai response");
+    const callArg = openaiCreateMock.mock.calls[0][0];
+    expect(callArg).not.toHaveProperty("response_format");
   });
 });
