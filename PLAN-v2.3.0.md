@@ -1,402 +1,197 @@
-# PLAN-v2.3.0 — Advanced Scoring & Search + Quick Wins
+# PLAN v2.3.0 — Eval Quality & Measurement Rigor
 
-**Goal:** Improve evolution visibility and iteration speed. Add advanced scoring capabilities, harness utilization metrics, and cost tracking. Plus: ship three quick-win features that unblock downstream work.
-
-**Design doc:** `docs/design/v2.0-kairn-evolve.md` (Section: v2.3.0 — Advanced Scoring)
-
-**Depends on:** v2.2.3 (Mutation Scope) — all evolution loop fixes must be complete
-
-**Estimated complexity:** Medium (10 steps, 3 parallel groups)
-
-**Structure:** Quick wins (infrastructure) + Medium features (tooling) + Scoring (core v2.3)
+> **Thesis:** The evolution loop works (v2.2.x proved it), but the signal quality is poor — noisy scores, no cost visibility, expensive API calls, and no way to classify why tasks fail. This version makes measurement trustworthy and usage affordable.
 
 ---
 
-## Quick Win 1: Fix Hardcoded CLI Version [parallel-safe]
+## Context
 
-**What to build:** Read package.json version dynamically instead of hardcoding.
+**Current state:** The evolve loop runs end-to-end with parallel evaluation, variance controls, adaptive pruning, optimization controls, and rollback-with-reproposal. Proven +7 point improvement on harness-sensitive evals. But:
+- Scores are noisy (±10-16 points stddev) — hard to tell real improvement from luck
+- No cost tracking — users don't know how many tokens/dollars each iteration costs
+- All LLM calls use API key billing — Claude Max subscribers pay twice
+- `evolve report` doesn't show variance data even when `--runs N` was used
+- CLI version is hardcoded, not read from package.json
+- No way to classify WHY a task failed (bad harness? bad task? bad model? bad repo state?)
 
-**Files to modify:**
-- `src/cli.ts`
+**Key files:**
+- `src/llm.ts` — `callLLM()` with Anthropic/OpenAI providers
+- `src/config.ts` — `loadConfig()`, `KairnConfig` type
+- `src/types.ts` — `KairnConfig` interface (needs `auth_type` field)
+- `src/commands/init.ts` — `kairn init` flow (needs OAuth option)
+- `src/evolve/report.ts` — `generateMarkdownReport()`, `generateJsonReport()`
+- `src/evolve/runner.ts` — `evaluateAll()`, `runTask()` — token counting goes here
+- `src/evolve/scorers.ts` — scoring functions, failure classification goes here
+- `src/evolve/types.ts` — `Score`, `EvolveConfig`, `EvolutionReport` types
 
-**Key implementation details:**
-- `src/cli.ts:22` has `.version("1.9.0")` hardcoded
-- Read from `package.json` at runtime using `import` or `readFileSync`
-- Approach: Import `package.json` as module (ESM native):
-  ```typescript
-  import { version } from '../package.json' assert { type: 'json' };
-  ```
-  Then use `version` directly in `.version(version)`
-- Fallback: If import fails, use `readFileSync('./package.json', 'utf-8')` and parse JSON
-- Verify `npm run build` doesn't break the import
+---
 
-**Verification command:**
-```bash
-npm run build
-npm test -- src/__tests__/cli.test.ts
-npx tsx src/cli.ts --version  # Should output 2.3.0 or current package.json version
+## Steps
+
+### Step 1: Claude Code subscription auth (experimental)
+> The highest-value item for cost reduction. Users on Claude Max pay $200/mo for unlimited usage but currently must also buy API credits for evolve.
+
+**New file:** `src/auth/keychain.ts`
+
+```typescript
+export interface OAuthCredentials {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  subscriptionType: string;
+}
+
+export async function readClaudeCodeCredentials(): Promise<OAuthCredentials | null>
+export async function refreshAccessToken(credentials: OAuthCredentials): Promise<OAuthCredentials>
+export function isTokenExpired(credentials: OAuthCredentials): boolean
 ```
 
-**Commit message:** `fix(cli): read version from package.json instead of hardcoding`
+**Behavior:**
+1. Uses macOS `security` CLI to read `Claude Code-credentials` from Keychain
+2. Parses JSON, extracts `claudeAiOauth` object
+3. Checks `expiresAt` — if expired, attempts refresh
+4. Returns access token that can be used as API key with Anthropic SDK
+
+**Modify:** `src/types.ts` — Add `auth_type?: 'api-key' | 'claude-code-oauth'` to KairnConfig
+
+**Modify:** `src/commands/init.ts` — Add "Use Claude Code subscription (experimental)" option during init, with warning message
+
+**Modify:** `src/llm.ts` — Before each LLM call, if `auth_type === 'claude-code-oauth'`, read and refresh token from keychain, use as API key
+
+**Tests:**
+- Token parsing from JSON keychain output
+- Expiry detection (expired vs valid)
+- Fallback to API key when keychain unavailable
+- Init flow offers OAuth option
+
+**Acceptance:** `npm run build` passes, `npm test` passes. `kairn init` shows OAuth option. LLM calls work with OAuth token.
 
 ---
 
-## Quick Win 2: Parallel Task Evaluation [depends-on: architecture review]
+### Step 2: Confidence intervals in evolve report
+> When `--runs N` was used, the report should show mean ± stddev per task, not just a single score.
 
-**What to build:** Run `evaluateAll` tasks in parallel with concurrency control.
+**Modify:** `src/evolve/report.ts` — `generateMarkdownReport()`
 
-**Files to modify:**
-- `src/evolve/runner.ts` (if `evaluateAll` is here)
-- OR `src/evolve/types.ts` + wherever `evaluateAll` is called
+- Iteration table adds ±stddev column when any task has variance data
+- Per-task leaderboard shows mean ± stddev
+- Best iteration callout includes confidence information
 
-**Key implementation details:**
-- Current: `evaluateAll` iterates tasks sequentially with `for await`
-- Change: Use `Promise.all` with a concurrency limit (e.g., 2-3 parallel tasks)
-- Use `pLimit` from `npm:p-limit` (already a dependency?) or build a simple queue
-- Each task gets its own git worktree (already isolated), so parallelism is safe
-- Iteration time: ~20 min (sequential) → ~5 min (parallel with 4 tasks @ 1.5 min each)
-- Config: Read from `EvolveConfig.maxParallel` (default: 3, user-overridable via CLI flag `--max-parallel`)
+**Modify:** `src/evolve/types.ts` — `EvolutionReport.iterations[].stddev?: number`
 
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/runner.test.ts  # Ensure isolation still works
-# Manual: time npx tsx src/cli.ts evolve run --iterations 1 (should be ~5 min, not 20)
+**Tests:**
+- Report with variance data shows ±stddev
+- Report without variance data shows no stddev column
+- JSON report includes variance fields
+
+**Acceptance:** `npm run build` passes, `npm test` passes. `kairn evolve report` shows stddev when available.
+
+---
+
+### Step 3: Cost tracking per iteration
+> Users need to know how much each evolve run costs in tokens and dollars.
+
+**New file:** `src/evolve/cost.ts`
+
+```typescript
+export interface IterationCost {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedUSD: number;
+  wallTimeMs: number;
+}
+
+export function estimateCost(inputTokens: number, outputTokens: number, model: string): number
 ```
 
-**Commit message:** `perf(evolve): parallelize task evaluation with concurrency limit`
+**Modify:** `src/llm.ts` — Return token usage from Anthropic/OpenAI responses alongside the text
+
+**Modify:** `src/evolve/runner.ts` — Track cumulative token usage per iteration
+
+**Modify:** `src/evolve/loop.ts` — Aggregate cost per iteration, include in IterationLog
+
+**Modify:** `src/commands/evolve.ts` — Display cost in evolution summary
+
+**Tests:**
+- Cost estimation for known models (sonnet, opus, gpt-4.1)
+- Token usage extracted from mock API responses
+- Cost displayed in summary
+
+**Acceptance:** `npm run build` passes, `npm test` passes. Evolution summary shows token count and estimated cost.
 
 ---
 
-## Quick Win 3: `kairn evolve apply` — Copy Best Harness [depends-on: 1]
+### Step 4: Failure taxonomy in scoring
+> Classify WHY a task failed — was it the harness, the task definition, the model, or the repo state?
 
-**What to build:** CLI command to copy the best iteration's harness back to `.claude/` with confirmation.
-
-**Files to modify:**
-- `src/cli.ts` (add new command)
-- `src/evolve/apply.ts` (NEW file)
-
-**Key implementation details:**
-- New command: `kairn evolve apply [options]`
-- Options:
-  - `--iter N` — apply a specific iteration (default: auto-detect best)
-  - `--force` — skip confirmation
-- Logic:
-  1. Load iteration log from `.kairn-evolve/iterations.json`
-  2. Find best iteration (highest aggregate score)
-  3. Show diff between current `.claude/` and best harness (using existing `generateDiff`)
-  4. Prompt user: "Apply harness from iteration {N}? (y/n)"
-  5. If yes, copy best harness to `.claude/` and git commit
-  6. Commit message: `feat: apply evolved harness from iteration {N} (score {S}%)`
-- Error handling: No .kairn-evolve dir → error with hint to run `kairn evolve run` first
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/apply.test.ts  # NEW test file
-# Manual: npx tsx src/cli.ts evolve run --iterations 2, then kairn evolve apply
+**Modify:** `src/evolve/types.ts` — Add to Score:
+```typescript
+failureCategory?: 'harness' | 'task' | 'model' | 'repo' | 'unknown';
+failureReason?: string;
 ```
 
-**Commit message:** `feat(evolve): add 'kairn evolve apply' to copy best harness to .claude/`
+**Modify:** `src/evolve/scorers.ts` — After scoring, classify failures:
+- `harness`: agent tried but got conventions wrong (score 30-70%)
+- `task`: task setup failed or task is ambiguous (setup errors in trace)
+- `model`: agent hit token limits, context overflow, or refused (API errors in trace)
+- `repo`: git dirty, build broken before agent started (pre-existing issues)
+- `unknown`: can't classify
+
+**Modify:** `src/evolve/report.ts` — Show failure taxonomy breakdown in report
+
+**Tests:**
+- Classification logic for each category
+- Report includes taxonomy when failures present
+- Proposer context includes failure categories
+
+**Acceptance:** `npm run build` passes, `npm test` passes. Failures are classified in traces and report.
 
 ---
 
-## Quick Win 4: Capture Tool Calls in Traces [depends-on: 1]
+### Step 5: DX quick wins
+> Small improvements that reduce friction.
 
-**What to build:** Parse Claude Code's tool_use blocks to extract actual tool invocations and MCP usage.
+**Fix:** `src/cli.ts` — Read version from package.json instead of hardcoded string
 
-**Files to modify:**
-- `src/evolve/runner.ts` (modify runner to capture tool output)
+**Modify:** `src/evolve/runner.ts` — Parse tool_calls from runner stdout into `tool_calls.json` trace file (already partially implemented in `parseToolCalls`)
 
-**Key implementation details:**
-- Runner currently uses `--output-format text` → tool_calls.jsonl is always empty
-- Switch to `--output-format stream-json` or keep text but parse tool_use from the transcript
-- Parse the output to extract:
-  - Tool calls (which MCP servers, which tools, how many times)
-  - Slash commands (which agents were invoked)
-  - Cost (tokens consumed)
-- Store in `iterations/{N}/tool_calls.json` (easier to query than .jsonl)
-- Format:
-  ```json
-  {
-    "tools_used": ["web_search", "file_read"],
-    "mcp_servers": ["filesystem", "web"],
-    "agents_invoked": ["@planner", "@implementer"],
-    "slash_commands": ["/project:ship", "/git"],
-    "total_tokens": 45000
-  }
-  ```
-- Note: This is infra for harness utilization metrics (Step 7) — don't try to do that analysis here
+**Tests:**
+- CLI `--version` matches package.json
+- Tool calls captured in trace when present
 
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/runner.test.ts
-# Manual: Run a task, check iterations/{N}/tool_calls.json exists and parses
+**Acceptance:** `npm run build` passes, `npm test` passes. `kairn --version` shows correct version.
+
+---
+
+## Execution Order
+
+```
+Step 1 (OAuth)  → Step 2 (report) → Step 3 (cost) → Step 4 (taxonomy) → Step 5 (DX)
+   [auth]          [reporting]        [metering]       [diagnostics]       [polish]
 ```
 
-**Commit message:** `feat(evolve): capture tool calls and MCP usage from runner output`
+Steps 1, 2, 4, 5 are independent and can be built in parallel.
+Step 3 depends on Step 2 (report displays cost) and modifies `llm.ts` (same as Step 1).
 
 ---
 
-## Step 5: Harness Utilization Metrics [depends-on: 4]
+## Completion Criteria
 
-**What to build:** Analyze tool_calls.json to measure harness coverage and tool relevance.
+- [ ] `kairn init` offers Claude Code OAuth option (experimental, with warning)
+- [ ] LLM calls work with OAuth token from macOS Keychain
+- [ ] `kairn evolve report` shows mean ± stddev when `--runs N` was used
+- [ ] Evolution summary shows token count and estimated cost per iteration
+- [ ] Failed tasks are classified by failure category (harness/task/model/repo)
+- [ ] `kairn --version` reads from package.json dynamically
+- [ ] `npm run build` clean, `npm test` all green
+- [ ] Version bumped to 2.3.0
+- [ ] ROADMAP.md updated
+- [ ] CHANGELOG.md updated
 
-**Files to modify:**
-- `src/evolve/metrics.ts` (NEW file)
-- `src/evolve/proposer.ts` (pass utilization data to proposer context)
+---
 
-**Key implementation details:**
-- Read tool_calls.json from iteration
-- Metrics to compute:
-  - **Tool utilization:** tools_used.length / total_tools_available (e.g., 3/28 = 11%)
-  - **Agent utilization:** agents_invoked.length / total_agents (e.g., 2/5 = 40%)
-  - **Bloat score:** rules in harness that were never used (e.g., "only 60% of rules were referenced")
-  - **Specificity score:** if agent used tool X, but harness had 5 unused similar tools (e.g., "used 1/5 search tools")
-- Pass these metrics to proposer in the context section:
-  ```
-  Tool Coverage: 11% (3 of 28 tools used)
-  Unused MCP Servers: postgresql, slack, notion
-  Agents Invoked: @planner, @implementer (60%)
-  ```
-- Proposer can use this to prioritize pruning (delete unused tools) or adding missing tools
+## Ralph Loop Prompt
 
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/metrics.test.ts  # NEW test file
 ```
-
-**Commit message:** `feat(evolve): add harness utilization metrics (tool/agent/rule coverage)`
-
----
-
-## Step 6: Cost Tracking Per Iteration [parallel-safe]
-
-**What to build:** Track and report API costs for each iteration.
-
-**Files to modify:**
-- `src/evolve/types.ts` (add cost fields to IterationLog)
-- `src/evolve/baseline.ts` or `src/evolve/runner.ts` (capture tokens)
-- `src/evolve/report.ts` (show cost breakdown)
-
-**Key implementation details:**
-- Add to `IterationLog`:
-  ```typescript
-  cost: {
-    tokens_used: number;
-    estimated_usd: number;  // Anthropic pricing: $3/$15 per M tokens
-    wall_time_seconds: number;
-  }
-  ```
-- Capture in runner:
-  - Extract `usage.input_tokens` and `usage.output_tokens` from each LLM call
-  - Sum across all tasks in iteration
-  - Use Anthropic pricing: input = $3/M, output = $15/M (Claude 3.5 Opus)
-- Show in `kairn evolve report`:
-  ```
-  Iteration 0:  score=93.0%  tokens=245,000  cost=$1.23
-  Iteration 1:  score=94.5%  tokens=210,000  cost=$1.05
-  Iteration 2:  score=93.2%  tokens=198,000  cost=$0.99
-  ```
-- Add CLI flag: `--budget $5` (error if cost exceeds budget before starting iteration)
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/report.test.ts
-# Manual: npx tsx src/cli.ts evolve report (should show cost column)
+/ralph Read PLAN-v2.3.0.md. Execute steps 1-5 in order. For each step: write failing tests first (RED), implement until tests pass (GREEN), then clean up (REFACTOR). Run npm run build and npm test after each step. Commit after each step passes. Create a feature branch and PR per step for user approval. --max-iterations 20 --completion-promise 'Steps 1-5 complete: OAuth auth works, report shows variance, cost tracking works, failure taxonomy works, DX wins shipped'
 ```
-
-**Commit message:** `feat(evolve): track and report API cost per iteration`
-
----
-
-## Step 7: Multi-Objective Scoring Framework [parallel-safe]
-
-**What to build:** Enable custom scoring functions and multi-objective optimization.
-
-**Files to modify:**
-- `src/evolve/types.ts` (add ScoringFunction interface, multi-objective config)
-- `src/evolve/scorers.ts` (factory for built-in scorers)
-
-**Key implementation details:**
-- Current: single score per task (0-100%)
-- New: multi-objective with weights
-  ```typescript
-  interface ObjectiveScore {
-    correctness: number;        // 0-100, from task verification
-    efficiency: number;         // 0-100, based on tokens/latency
-    cost_efficiency: number;    // 0-100, based on cost vs. performance
-  }
-  
-  interface ScoringConfig {
-    weights?: {
-      correctness: number;      // default 0.7
-      efficiency: number;       // default 0.2
-      cost_efficiency: number;  // default 0.1
-    }
-  }
-  ```
-- Aggregate score: `correctness * 0.7 + efficiency * 0.2 + cost_efficiency * 0.1`
-- Custom scoring: Allow user-defined scorer functions in `.kairn-evolve/custom-score.ts`
-  - Proposer can suggest efficiency optimizations if efficiency score is low
-  - Proposer can suggest cost cuts if cost_efficiency is low
-- UI: Show breakdown in report:
-  ```
-  Iteration 1:
-    Correctness:     98.0%  ████████████████████ (pass 4/4 tasks)
-    Efficiency:      72.0%  ████████████████     (fast agents)
-    Cost Efficiency: 85.0%  ███████████████████  (minimal tokens)
-    ───────────────────────
-    Weighted Score:  89.2%  ███████████████████
-  ```
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/scorers.test.ts
-```
-
-**Commit message:** `feat(evolve): multi-objective scoring (correctness × efficiency × cost)`
-
----
-
-## Step 8: Search Strategy Selection [parallel-safe]
-
-**What to build:** CLI option to choose evolution strategy (greedy, best-of-N, population-based).
-
-**Files to modify:**
-- `src/evolve/types.ts` (add `searchStrategy` to EvolveConfig)
-- `src/evolve/loop.ts` (implement different strategies)
-- `src/cli.ts` (add `--search-strategy` flag)
-
-**Key implementation details:**
-- Three strategies:
-  - **Greedy (default):** Current loop — apply best mutation, move to next iteration
-  - **Best-of-N:** Proposer generates 3 mutation sets, evaluate all, pick best before next iteration (slower, more thorough)
-  - **Population-based:** Keep 3 best harnesses, mutate each independently, evolve for N iterations (like genetic algorithms)
-- CLI: `kairn evolve run --iterations 3 --search-strategy best-of-n`
-- Config file: can set default in `.kairn-evolve/config.json`
-- Only implement structure/types here — actual algorithms in Step 9
-
-**Verification command:**
-```bash
-npm run build
-npm run typecheck
-```
-
-**Commit message:** `feat(evolve): add search strategy options (greedy, best-of-N, population)`
-
----
-
-## Step 9: Prompt Caching Integration [parallel-safe]
-
-**What to build:** Use Anthropic's ephemeral prompt caching to cache large trace reads.
-
-**Files to modify:**
-- `src/llm.ts` (add cache_control to system prompt in proposer calls)
-- `src/evolve/proposer.ts` (mark large trace context as cacheable)
-
-**Key implementation details:**
-- Current: Proposer reads full traces (10K+ tokens) on every iteration
-- With caching: Mark the trace as cacheable in first read, reuse cache on mutations
-- Approach:
-  ```typescript
-  // In src/llm.ts, when jsonMode or large context:
-  messages: [
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: traceData,
-          cache_control: { type: "ephemeral" }
-        }
-      ]
-    }
-  ]
-  ```
-- Savings: ~85% reduction in prompt tokens on cache hits (estimated 8-10 tokens input cost vs 250 full trace)
-- No CLI changes — automatic
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/__tests__/llm.test.ts  # Verify cache_control doesn't break calls
-```
-
-**Commit message:** `feat(evolve): use Anthropic ephemeral prompt caching for traces`
-
----
-
-## Step 10: Validation Set (Train/Test Split) [parallel-safe]
-
-**What to build:** Allow splitting tasks into train and held-out validation sets.
-
-**Files to modify:**
-- `src/evolve/types.ts` (add validationTasks to EvolveConfig)
-- `src/evolve/loop.ts` (use validation set only for final scoring)
-- `src/evolve/report.ts` (show train/validation scores separately)
-
-**Key implementation details:**
-- Current: Evolve loop optimizes on ALL tasks simultaneously
-- New: Split tasks 70% train / 30% validation
-- Loop behavior:
-  - Iterations 0-N: Optimize on train set only (proposer reads train traces, applies mutations)
-  - After loop: Score final harness on BOTH train and validation sets
-  - Report shows:
-    ```
-    Iteration 2 (train):       score=94.5%
-    Final (train vs validation):  train=94.5%, validation=91.8%
-    ```
-- Prevents overfitting — if validation score drops, harness is overfit
-- Config: `--validation-split 0.3` or `--validation-tasks [task1,task2]`
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/loop.test.ts
-```
-
-**Commit message:** `feat(evolve): add held-out validation set to prevent overfitting`
-
----
-
-## Parallel Groups
-
-**Group A [parallel, no dependencies]:**
-- Step 1: Hardcoded version fix
-- Step 6: Cost tracking
-- Step 7: Multi-objective scoring
-- Step 8: Search strategy selection
-- Step 9: Prompt caching
-- Step 10: Validation set
-
-**Group B [after A]:**
-- Step 2: Parallel task evaluation (architecture review first, then build)
-- Step 3: `kairn evolve apply` (depends on version fix + stable iteration log)
-- Step 4: Capture tool calls (core infrastructure)
-
-**Group C [after B]:**
-- Step 5: Harness utilization metrics (depends on tool calls capture)
-
----
-
-## Success Criteria (v2.3.0 Complete)
-
-- [ ] All 10 steps committed to feature branch
-- [ ] `npm run build` succeeds
-- [ ] `npm test` passes (all new + existing tests green)
-- [ ] **Iteration time:** ~5 min per iteration (from ~20 min with parallel eval)
-- [ ] `kairn evolve apply --iter 1` copies best harness to .claude/ with confirmation
-- [ ] `kairn --version` reads from package.json (not hardcoded)
-- [ ] Tool calls captured in iterations/{N}/tool_calls.json
-- [ ] Harness utilization metrics shown in proposer context
-- [ ] `kairn evolve report` shows cost_usd column
-- [ ] Multi-objective scores breakdown shown (correctness × efficiency × cost)
-- [ ] `--search-strategy` flag options work (greedy/best-of-N/population)
-- [ ] Anthropic ephemeral caching active (reduces proposer input tokens ~85%)
-- [ ] Validation set split prevents overfitting (validation score visible in report)
-- [ ] Integration test: `kairn evolve run --iterations 3 --validation-split 0.3 --search-strategy best-of-n` succeeds
