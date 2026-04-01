@@ -89,6 +89,23 @@ describe('passFailScorer', () => {
     expect(result.score).toBe(0);
   });
 
+  it('ignores setup stderr lines when checking for errors', async () => {
+    const { passFailScorer } = await import('../scorers.js');
+    const task = makeTask();
+    // Setup stderr has [setup] prefix — should be stripped before error check
+    const result = await passFailScorer(task, tempDir, '', '[setup] npm ERR! error something\nActual task output');
+    expect(result.pass).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
+  it('still detects real errors after stripping setup lines', async () => {
+    const { passFailScorer } = await import('../scorers.js');
+    const task = makeTask();
+    const result = await passFailScorer(task, tempDir, '', '[setup] npm ERR! error\nError: real task failure');
+    expect(result.pass).toBe(false);
+    expect(result.score).toBe(0);
+  });
+
   it('executes verification commands from expected_outcome array', async () => {
     const { execCommand } = await import('../exec.js');
     const mockExec = execCommand as ReturnType<typeof vi.fn>;

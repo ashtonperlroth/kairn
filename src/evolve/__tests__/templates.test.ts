@@ -89,7 +89,10 @@ describe("EVAL_TEMPLATES", () => {
     expect(keys).toContain("test-writing");
     expect(keys).toContain("config-change");
     expect(keys).toContain("documentation");
-    expect(keys).toHaveLength(6);
+    expect(keys).toContain("convention-adherence");
+    expect(keys).toContain("workflow-compliance");
+    expect(keys).toContain("rule-compliance");
+    expect(keys).toHaveLength(9);
   });
 
   it("each template has required metadata fields", () => {
@@ -112,7 +115,21 @@ describe("selectTemplatesForWorkflow", () => {
 
   it("returns default templates for unknown workflow types", () => {
     const result = selectTemplatesForWorkflow("unknown-workflow");
-    expect(result).toEqual(["add-feature", "fix-bug", "test-writing"]);
+    expect(result).toEqual(["add-feature", "fix-bug", "test-writing", "convention-adherence"]);
+  });
+
+  it("includes at least one harness-aware template for every workflow", () => {
+    const harnessAware = ["convention-adherence", "workflow-compliance", "rule-compliance"];
+    const workflows = [
+      "feature-development", "api-building", "full-stack", "maintenance",
+      "debugging", "qa", "architecture", "backend", "devops",
+      "infrastructure", "tdd", "content", "research", "unknown",
+    ];
+    for (const wf of workflows) {
+      const templates = selectTemplatesForWorkflow(wf);
+      const hasHarnessAware = templates.some(t => harnessAware.includes(t));
+      expect(hasHarnessAware, `${wf} should have a harness-aware template`).toBe(true);
+    }
   });
 });
 
