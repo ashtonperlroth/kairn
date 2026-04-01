@@ -318,6 +318,18 @@ evolveCommand
             case 'perfect-score':
               console.log(chalk.green('  Perfect score. Stopping.'));
               break;
+            case 'proposer-error':
+              console.log(chalk.yellow(`  Warning: ${event.message ?? 'Proposer failed'}`));
+              break;
+            case 'task-start':
+              console.log(chalk.dim(`    Running: ${event.taskId ?? 'unknown'}...`));
+              break;
+            case 'task-scored': {
+              const taskScore = event.score ?? 0;
+              const taskStatus = taskScore >= 100 ? chalk.green('PASS') : taskScore >= 60 ? chalk.yellow('PARTIAL') : chalk.red('FAIL');
+              console.log(`    ${taskStatus}  ${event.taskId ?? 'unknown'} ${chalk.dim(`(${taskScore.toFixed(0)}%)`)}`);
+              break;
+            }
             case 'complete':
               break; // Summary printed below
           }
