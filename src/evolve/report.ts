@@ -67,6 +67,7 @@ function buildLeaderboard(
   const taskIds = tasks.map(t => t.id);
   return taskIds.map(taskId => {
     const scores: Record<number, number> = {};
+    const variance: Record<number, { mean: number; stddev: number; runs: number }> = {};
     let bestScore = -1;
     let bestIteration = 0;
 
@@ -75,6 +76,13 @@ function buildLeaderboard(
       if (s) {
         const score = numericScore(s);
         scores[iter.iteration] = score;
+        if (s.variance) {
+          variance[iter.iteration] = {
+            mean: s.variance.mean,
+            stddev: s.variance.stddev,
+            runs: s.variance.runs,
+          };
+        }
         if (score > bestScore) {
           bestScore = score;
           bestIteration = iter.iteration;
@@ -82,7 +90,8 @@ function buildLeaderboard(
       }
     }
 
-    return { taskId, scores, bestIteration, bestScore };
+    const hasVariance = Object.keys(variance).length > 0;
+    return { taskId, scores, bestIteration, bestScore, ...(hasVariance ? { variance } : {}) };
   });
 }
 
@@ -137,13 +146,33 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
   // Iteration summary table
   lines.push('## Iterations');
   lines.push('');
-  lines.push('| Iter | Score | Mutations | Status |');
-  lines.push('|------|-------|-----------|--------|');
+  // Check if any iteration has variance data
+  const hasVariance = iterations.some(iter =>
+    Object.values(iter.taskResults).some(s => s.variance),
+  );
+
+  if (hasVariance) {
+    lines.push('| Iter | Score | Mutations | Status |');
+    lines.push('|------|-------|-----------|--------|');
+  } else {
+    lines.push('| Iter | Score | Mutations | Status |');
+    lines.push('|------|-------|-----------|--------|');
+  }
   for (const iter of iterations) {
     const mutations = iter.proposal?.mutations.length ?? 0;
     const mutStr = mutations > 0 ? mutations.toString() : '-';
     const status = iterationStatus(iter, bestIter.iteration);
-    lines.push(`| ${iter.iteration} | ${iter.score.toFixed(1)}% | ${mutStr} | ${status} |`);
+    let scoreStr = `${iter.score.toFixed(1)}%`;
+    if (hasVariance) {
+      const stddevs = Object.values(iter.taskResults)
+        .map(s => s.variance?.stddev)
+        .filter((v): v is number => v !== undefined);
+      if (stddevs.length > 0) {
+        const avgStddev = stddevs.reduce((a, b) => a + b, 0) / stddevs.length;
+        scoreStr = `${iter.score.toFixed(1)}% ±${avgStddev.toFixed(1)}`;
+      }
+    }
+    lines.push(`| ${iter.iteration} | ${scoreStr} | ${mutStr} | ${status} |`);
   }
   lines.push('');
 
@@ -161,7 +190,10 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
     for (const entry of leaderboard) {
       const scoreCols = iterNums.map(n => {
         const s = entry.scores[n];
-        return s !== undefined ? `${s.toFixed(0)}%` : '-';
+        if (s === undefined) return '-';
+        const v = entry.variance?.[n];
+        if (v && v.runs > 1) return `${s.toFixed(0)}% ±${v.stddev.toFixed(1)}`;
+        return `${s.toFixed(0)}%`;
       });
       lines.push(`| ${entry.taskId} | ${scoreCols.join(' | ')} | ${entry.bestScore.toFixed(0)}% (iter ${entry.bestIteration}) |`);
     }
@@ -226,12 +258,21 @@ export async function generateJsonReport(workspacePath: string): Promise<Evoluti
       bestIteration: bestIter.iteration,
       improvement,
     },
-    iterations: iterations.map(iter => ({
-      iteration: iter.iteration,
-      score: iter.score,
-      mutationCount: iter.proposal?.mutations.length ?? 0,
-      status: iterationStatus(iter, bestIter.iteration),
-    })),
+    iterations: iterations.map(iter => {
+      const stddevs = Object.values(iter.taskResults)
+        .map(s => s.variance?.stddev)
+        .filter((v): v is number => v !== undefined);
+      const avgStddev = stddevs.length > 0
+        ? stddevs.reduce((a, b) => a + b, 0) / stddevs.length
+        : undefined;
+      return {
+        iteration: iter.iteration,
+        score: iter.score,
+        ...(avgStddev !== undefined ? { stddev: avgStddev } : {}),
+        mutationCount: iter.proposal?.mutations.length ?? 0,
+        status: iterationStatus(iter, bestIter.iteration),
+      };
+    }),
     leaderboard,
     counterfactuals,
   };

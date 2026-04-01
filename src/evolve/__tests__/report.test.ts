@@ -29,7 +29,7 @@ async function createWorkspace(opts: {
   iterations: Array<{
     iteration: number;
     score: number;
-    taskResults: Record<string, { pass: boolean; score?: number }>;
+    taskResults: Record<string, { pass: boolean; score?: number; variance?: { runs: number; scores: number[]; mean: number; stddev: number } }>;
     proposal?: {
       reasoning: string;
       mutations: Array<{ file: string; action: string; newText: string; rationale: string }>;
@@ -287,5 +287,121 @@ describe('generateJsonReport', () => {
 
     expect(parsed).toBeDefined();
     expect(typeof parsed).toBe('object');
+  });
+
+  it('includes stddev in iterations when variance data exists', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        {
+          iteration: 0,
+          score: 80,
+          taskResults: {
+            'task-1': {
+              pass: true,
+              score: 80,
+              variance: { runs: 3, scores: [70, 80, 90], mean: 80, stddev: 8.16 },
+            },
+          },
+        },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const report = await generateJsonReport(workspace);
+    expect(report.iterations[0].stddev).toBeCloseTo(8.16, 1);
+  });
+
+  it('omits stddev in iterations when no variance data', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 80, taskResults: { 'task-1': { pass: true, score: 80 } } },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const report = await generateJsonReport(workspace);
+    expect(report.iterations[0].stddev).toBeUndefined();
+  });
+
+  it('includes variance in leaderboard when present', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        {
+          iteration: 0,
+          score: 75,
+          taskResults: {
+            'task-1': {
+              pass: true,
+              score: 75,
+              variance: { runs: 3, scores: [70, 75, 80], mean: 75, stddev: 4.08 },
+            },
+          },
+        },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const report = await generateJsonReport(workspace);
+    expect(report.leaderboard[0].variance).toBeDefined();
+    expect(report.leaderboard[0].variance![0].runs).toBe(3);
+    expect(report.leaderboard[0].variance![0].stddev).toBeCloseTo(4.08, 1);
+  });
+});
+
+describe('generateMarkdownReport with variance', () => {
+  it('shows ±stddev in iteration table when variance data exists', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        {
+          iteration: 0,
+          score: 70,
+          taskResults: {
+            'task-1': {
+              pass: true,
+              score: 70,
+              variance: { runs: 3, scores: [60, 70, 80], mean: 70, stddev: 8.16 },
+            },
+          },
+        },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).toContain('±8.2');
+  });
+
+  it('shows ±stddev in leaderboard per task', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        {
+          iteration: 0,
+          score: 65,
+          taskResults: {
+            'task-1': {
+              pass: true,
+              score: 65,
+              variance: { runs: 3, scores: [60, 65, 70], mean: 65, stddev: 4.08 },
+            },
+          },
+        },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).toContain('65% ±4.1');
+  });
+
+  it('does NOT show stddev when no variance data exists', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 80, taskResults: { 'task-1': { pass: true, score: 80 } } },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).not.toContain('±');
   });
 });

@@ -184,6 +184,7 @@ export interface EvolutionReport {
   iterations: Array<{
     iteration: number;
     score: number;
+    stddev?: number;
     mutationCount: number;
     status: string;
   }>;
@@ -192,6 +193,7 @@ export interface EvolutionReport {
     scores: Record<number, number>;
     bestIteration: number;
     bestScore: number;
+    variance?: Record<number, { mean: number; stddev: number; runs: number }>;
   }>;
   counterfactuals: CounterfactualReport;
 }
