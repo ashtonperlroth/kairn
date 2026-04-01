@@ -7,6 +7,29 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.5.0] — 2026-04-01
+
+### Added
+- **Two-tier intent routing** — `kairn describe` now generates project-specific intent-aware hooks that intercept natural language and route to the correct workflow command
+- **Tier 1 regex engine** (`.claude/hooks/intent-router.mjs`) — <10ms, $0 keyword matching with synonym expansion (e.g., "ship it" → `/project:deploy`)
+- **Tier 2 prompt hook** — Haiku-powered semantic classification for ambiguous prompts (~$0.001/prompt), compiled with project-specific workflow + agent manifest
+- **Intent pattern generation** — each generated command produces 1-3 regex patterns from command name, synonyms, and framework-specific verbs
+- **Question filter** — informational queries ("what is deploy?", "how do I test?") do not trigger routing
+- **Self-learning pattern promotion** (`.claude/hooks/intent-learner.mjs`) — runs on `SessionStart`, promotes recurring Tier 2 patterns to Tier 1 regexes after 3+ matches
+- **Audit trail** — `.claude/hooks/intent-promotions.jsonl` records every promotion with timestamp, source prompts, and generated regex
+- **`intent-routing` eval template** — test that NL prompts route to correct commands via `kairn evolve`
+- **Evolve integration** — proposer reads intent patterns as harness context, baseline snapshots include `.claude/hooks/`
+
+### Changed
+- `EnvironmentSpec.harness` extended with `hooks`, `intent_patterns`, `intent_prompt_template` fields
+- `HarnessContent` extended with `hooks` field
+- `settings.json` output now includes `UserPromptSubmit` (Tier 1 + Tier 2) and `SessionStart` (learner) hooks
+- `buildFileMap()` and `writeEnvironment()` now write `.claude/hooks/` directory
+- Compilation pipeline (Pass 3) generates intent patterns, prompt template, and hook scripts
+- `EvalTemplate` type includes `intent-routing`
+
+---
+
 ## [2.2.0] — 2026-03-31
 
 ### Added

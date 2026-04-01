@@ -1,6 +1,6 @@
 {
   "name": "kairn-cli",
-  "version": "2.4.2",
+  "version": "2.5.0",
   "description": "Compile natural language intent into optimized Claude Code environments",
   "author": "Ashton Perlroth",
   "license": "MIT",
