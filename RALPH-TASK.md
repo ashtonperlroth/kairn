@@ -133,4 +133,49 @@ This is a patch release — no new CLI commands. Just the JSON fix. Mutation sco
 
 Builds on v2.2.1: modifies `callLLM()` in `src/llm.ts` and `parseProposerResponse()` in `src/evolve/proposer.ts`.
 
-PLAN-v2.2.1.md (renamed from v2.2.1 plan) has 4 steps grouped into 2 parallel groups (A: 2 parallel, B: 2 after A).
+PLAN-v2.2.1.md (v2.2.2 plan) has 4 steps grouped into 2 parallel groups (A: 2 parallel, B: 2 after A).
+
+---
+
+## For v2.2.3 Specifically
+
+The design doc is in `docs/design/v2.0-kairn-evolve.md` (section v2.2.1 — Mutation Scope Expansion, Bug 3/4/5 details).
+
+**Depends on:** v2.2.2 landing first (the proposer JSON fix must work before expanding mutation actions).
+
+**Key fixes:**
+1. Add `delete_section` and `delete_file` mutation actions (types.ts, mutator.ts, proposer parser)
+2. Include `.mcp.json` in harness scope (baseline.ts, runner.ts, proposer reads it automatically)
+3. Rebalance proposer prompt — remove "Prefer ADDITIVE" bias, list all 5 actions, add MCP guidance
+
+This is a patch release — no new CLI commands. Mutation scope expansion.
+
+Builds on v2.2.2: modifies `Mutation` type, `applyMutations()`, `createBaseline()`, `createIsolatedWorkspace()`, `parseProposerResponse()`, `PROPOSER_SYSTEM_PROMPT`.
+
+PLAN-v2.2.3.md has 7 steps grouped into 2 parallel groups (A: 3 parallel, B: 4 after A).
+
+---
+
+## For v2.3.0 Specifically
+
+The design doc is in `docs/design/v2.0-kairn-evolve.md` (section v2.3.0 — Advanced Scoring & Search).
+
+Feature ideas: `.omc/feature-ideas.md` (Quick Wins, Medium Features, Larger Features sections).
+
+**Key insight:** v2.3.0 is split into 3 tiers:
+1. **Quick Wins** (4 steps) — unblock downstream, improve DX: version fix, parallel eval, `evolve apply`, tool capture
+2. **Medium Features** (3 steps) — harness insights: utilization metrics, cost tracking, prompt caching
+3. **Core v2.3** (3 steps) — advanced scoring: multi-objective, search strategies, validation set
+
+Depends on v2.2.3: all evolution loop foundation must be solid first.
+
+**Parallel execution possible:**
+- Group A: All infrastructure fixes (version, cost, multi-obj, search, caching, validation) — 6 parallel
+- Group B: Iteration speed (parallel eval, apply) — after version fix
+- Group C: Harness insights (tool capture, utilization) — last
+
+Quick Wins alone cut iteration time from 20 min → 5 min, which unblocks faster development cycles.
+
+Builds on v2.2.3: modifies runner.ts, cli.ts, types.ts, scorers.ts, loop.ts, report.ts.
+
+PLAN-v2.3.0.md has 10 steps grouped into 3 parallel groups (A: 6 parallel, B: 3 after A, C: 1 after B).

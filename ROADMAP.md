@@ -184,7 +184,7 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
 - [x] Tests: delete mutations, MCP snapshot, balanced proposer
 
-### v2.2.2 — Proposer JSON Fix (Critical Bugfix)
+### v2.2.2 — Proposer JSON Fix (Critical Bugfix) [IN PROGRESS]
 > Discovered during Kairn-on-Kairn test run post-v2.2.1. **#1 blocker:** Proposer returns English prose instead of JSON — no mutations are ever applied despite loop running fine.
 
 - [ ] **CRITICAL:** Add `jsonMode` to `callLLM()` with assistant prefill (Anthropic) and `response_format` (OpenAI)
@@ -192,13 +192,35 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [ ] Wire `jsonMode: true` in proposer LLM call
 - [ ] Tests: JSON extraction from prose, assistant prefill behavior
 
-### v2.3.0 — Advanced Scoring & Search
-- [ ] Custom scoring functions (user-defined Python/TS scoring scripts)
-- [ ] Multi-objective scoring (correctness × efficiency × token cost)
-- [ ] Search strategy selection: greedy (default), best-of-N, population-based (OpenEvolve-style)
+### v2.2.3 — Mutation Scope Expansion (Bugfix)
+> After v2.2.2 fixes proposer JSON. Now enable the loop to remove bloat and optimize MCP configuration — not just add instructions.
+
+- [ ] Add `delete_section` and `delete_file` mutation actions to types and mutator
+- [ ] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
+- [ ] Rebalance proposer prompt: consider both additions AND removals, list all 5 mutation actions, add MCP guidance
+- [ ] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
+- [ ] Tests: delete mutations, MCP snapshot, balanced proposer
+- [ ] **Integration test:** `kairn evolve run --iterations 3` applies mutations and improves score (confirms loop actually evolves)
+
+### v2.3.0 — Advanced Scoring & Search + Quick Wins
+> After v2.2.3, improve evolution visibility, iteration speed, and scoring capabilities.
+
+**Quick Wins:**
+- [ ] Fix hardcoded CLI version → read from package.json dynamically
+- [ ] Parallel task evaluation (promise-based, concurrency-limited) — 20 min → 5 min per iteration
+- [ ] `kairn evolve apply [--iter N]` — copy best harness to .claude/ with diff preview + git commit
+- [ ] Capture tool calls & MCP usage from runner output → tool_calls.json
+
+**Medium Features (harness insights):**
+- [ ] Harness utilization metrics (which tools/agents/rules were used vs available)
+- [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
+- [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads — ~85% token savings)
+
+**Core v2.3 Features:**
+- [ ] Multi-objective scoring (correctness × efficiency × cost) with weighted aggregation
+- [ ] Search strategy selection: greedy (default), best-of-N, population-based
 - [ ] Held-out validation set (train/test split for tasks to prevent overfitting)
-- [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads)
-- [ ] Cost tracking per iteration (total tokens, API cost, wall time)
+- [ ] Custom scoring functions (user-defined scoring scripts in .kairn-evolve/)
 
 ### v2.4.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)

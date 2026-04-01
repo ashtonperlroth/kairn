@@ -30,23 +30,37 @@ minimal changes to the harness files that will fix those failures.
 
 3. Check history for counterfactual evidence
 
+## Available Mutation Actions
+1. **replace** — Replace old_text with new_text in a file: { "file": "...", "action": "replace", "old_text": "...", "new_text": "...", "rationale": "..." }
+2. **add_section** — Append new content to a file (or create it): { "file": "...", "action": "add_section", "new_text": "...", "rationale": "..." }
+3. **create_file** — Create a new file: { "file": "...", "action": "create_file", "new_text": "...", "rationale": "..." }
+4. **delete_section** — Remove specific text from a file: { "file": "...", "action": "delete_section", "old_text": "...", "rationale": "..." }
+5. **delete_file** — Delete an entire file: { "file": "...", "action": "delete_file", "rationale": "..." }
+
 ## Output Format
 Return a JSON object:
 {
   "reasoning": "Your full causal analysis...",
   "mutations": [
     { "file": "CLAUDE.md", "action": "replace", "old_text": "...", "new_text": "...", "rationale": "..." },
-    { "file": "commands/develop.md", "action": "add_section", "new_text": "...", "rationale": "..." }
+    { "file": "commands/develop.md", "action": "add_section", "new_text": "...", "rationale": "..." },
+    { "file": "rules/obsolete.md", "action": "delete_file", "rationale": "..." }
   ],
   "expected_impact": { "task-id": "+15% — explanation" }
 }
+
+## MCP Configuration
+You can also mutate .mcp.json to add, remove, or reconfigure MCP servers.
+Treat .mcp.json like any other harness file — propose changes when traces show
+the agent lacks a tool it needs, or has tools that add noise without benefit.
 
 ## Rules
 - MINIMAL changes only. Don't rewrite the entire CLAUDE.md.
 - Each mutation must have a clear rationale tied to a specific trace observation.
 - Never remove something that's working for another task.
 - If a previous iteration's change caused a regression, REVERT it.
-- Prefer ADDITIVE changes over replacements when possible.
+- Consider both additions AND removals. Remove sections that add noise without improving task performance.
+- Bloated harnesses hurt performance — trim what isn't earning its keep.
 
 Return ONLY valid JSON.`;
 
@@ -306,10 +320,10 @@ export function parseProposerResponse(raw: string): Proposal {
     const action = typeof m['action'] === 'string' ? m['action'] : '';
     const newText = typeof m['new_text'] === 'string'
       ? m['new_text']
-      : (typeof m['newText'] === 'string' ? m['newText'] as string : '');
+      : (typeof m['newText'] === 'string' ? m['newText'] : '');
     const oldText = typeof m['old_text'] === 'string'
       ? m['old_text']
-      : (typeof m['oldText'] === 'string' ? m['oldText'] as string : undefined);
+      : (typeof m['oldText'] === 'string' ? m['oldText'] : undefined);
     const rationale = typeof m['rationale'] === 'string' ? m['rationale'] : '';
 
     // Security: reject path traversal
@@ -317,12 +331,13 @@ export function parseProposerResponse(raw: string): Proposal {
       continue;
     }
 
-    if (action !== 'replace' && action !== 'add_section' && action !== 'create_file') {
+    const validActions = new Set(['replace', 'add_section', 'create_file', 'delete_section', 'delete_file']);
+    if (!validActions.has(action)) {
       continue;
     }
 
-    // For replace action, oldText is required
-    if (action === 'replace' && !oldText) {
+    // For replace and delete_section actions, oldText is required
+    if ((action === 'replace' || action === 'delete_section') && !oldText) {
       continue;
     }
 

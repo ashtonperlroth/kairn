@@ -15,6 +15,14 @@ const execAsync = promisify(exec);
 const COPY_SKIP_DIRS = new Set(['.git', 'node_modules', '.kairn-evolve', '.claude']);
 
 /**
+ * Copy .mcp.json from the harness into the workspace root if present.
+ */
+async function deployMcpJson(harnessPath: string, workDir: string): Promise<void> {
+  const src = path.join(harnessPath, '.mcp.json');
+  await fs.copyFile(src, path.join(workDir, '.mcp.json')).catch(() => {});
+}
+
+/**
  * Create an isolated workspace with project files and a swapped harness.
  * Tries git worktree first for speed and proper isolation.
  * Falls back to copying the project directory if not in a git repo.
@@ -39,6 +47,7 @@ async function createIsolatedWorkspace(
     // Replace .claude with iteration harness
     await fs.rm(path.join(tmpDir, '.claude'), { recursive: true, force: true });
     await copyDir(harnessPath, path.join(tmpDir, '.claude'));
+    await deployMcpJson(harnessPath, tmpDir);
     return { workDir: tmpDir, isWorktree: true };
   } catch {
     // Not a git repo or worktree creation failed — fall back to copy
@@ -49,6 +58,7 @@ async function createIsolatedWorkspace(
   await copyProjectDir(projectRoot, tmpDir);
   await fs.rm(path.join(tmpDir, '.claude'), { recursive: true, force: true });
   await copyDir(harnessPath, path.join(tmpDir, '.claude'));
+  await deployMcpJson(harnessPath, tmpDir);
   return { workDir: tmpDir, isWorktree: false };
 }
 

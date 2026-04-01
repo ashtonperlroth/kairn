@@ -61,6 +61,22 @@ export async function applyMutations(
     } else if (mutation.action === 'create_file') {
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, mutation.newText, 'utf-8');
+    } else if (mutation.action === 'delete_section') {
+      if (!mutation.oldText) {
+        continue;
+      }
+      let sectionContent: string;
+      try {
+        sectionContent = await fs.readFile(filePath, 'utf-8');
+      } catch {
+        continue;
+      }
+      if (!sectionContent.includes(mutation.oldText)) {
+        continue;
+      }
+      await fs.writeFile(filePath, sectionContent.replace(mutation.oldText, ''), 'utf-8');
+    } else if (mutation.action === 'delete_file') {
+      await fs.unlink(filePath).catch(() => {});
     }
   }
 

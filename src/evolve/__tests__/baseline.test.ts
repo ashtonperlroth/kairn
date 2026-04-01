@@ -99,6 +99,54 @@ describe('snapshotBaseline', () => {
     expect(content).toBe('# Harness');
   });
 
+  it('copies .mcp.json when present in project root', async () => {
+    const projectRoot = path.join(tempDir, 'project');
+    const claudeDir = path.join(projectRoot, '.claude');
+    const workspacePath = path.join(tempDir, 'workspace');
+    await fs.mkdir(claudeDir, { recursive: true });
+    await fs.writeFile(path.join(claudeDir, 'CLAUDE.md'), '# Project');
+    await fs.writeFile(
+      path.join(projectRoot, '.mcp.json'),
+      '{"mcpServers":{"test":{}}}',
+    );
+
+    await snapshotBaseline(projectRoot, workspacePath);
+
+    const baselineMcp = await fs.readFile(
+      path.join(workspacePath, 'baseline', '.mcp.json'),
+      'utf-8',
+    );
+    expect(baselineMcp).toBe('{"mcpServers":{"test":{}}}');
+
+    const iter0Mcp = await fs.readFile(
+      path.join(workspacePath, 'iterations', '0', 'harness', '.mcp.json'),
+      'utf-8',
+    );
+    expect(iter0Mcp).toBe('{"mcpServers":{"test":{}}}');
+  });
+
+  it('works without .mcp.json (backward compat)', async () => {
+    const projectRoot = path.join(tempDir, 'project');
+    const claudeDir = path.join(projectRoot, '.claude');
+    const workspacePath = path.join(tempDir, 'workspace');
+    await fs.mkdir(claudeDir, { recursive: true });
+    await fs.writeFile(path.join(claudeDir, 'CLAUDE.md'), '# Project');
+
+    // Should not throw when .mcp.json is absent
+    await snapshotBaseline(projectRoot, workspacePath);
+
+    const content = await fs.readFile(
+      path.join(workspacePath, 'baseline', 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(content).toBe('# Project');
+
+    // .mcp.json should not exist in baseline
+    await expect(
+      fs.access(path.join(workspacePath, 'baseline', '.mcp.json')),
+    ).rejects.toThrow();
+  });
+
   it('throws if .claude/ does not exist', async () => {
     const projectRoot = path.join(tempDir, 'no-claude-project');
     const workspacePath = path.join(tempDir, 'workspace');

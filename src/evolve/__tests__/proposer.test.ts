@@ -159,6 +159,29 @@ describe('PROPOSER_SYSTEM_PROMPT', () => {
     expect(PROPOSER_SYSTEM_PROMPT).toContain('MINIMAL changes only');
     expect(PROPOSER_SYSTEM_PROMPT).toContain('valid JSON');
   });
+
+  it('lists all 5 mutation actions including delete_section and delete_file', async () => {
+    const { PROPOSER_SYSTEM_PROMPT } = await import('../proposer.js');
+
+    expect(PROPOSER_SYSTEM_PROMPT).toContain('delete_section');
+    expect(PROPOSER_SYSTEM_PROMPT).toContain('delete_file');
+    expect(PROPOSER_SYSTEM_PROMPT).toContain('replace');
+    expect(PROPOSER_SYSTEM_PROMPT).toContain('add_section');
+    expect(PROPOSER_SYSTEM_PROMPT).toContain('create_file');
+  });
+
+  it('includes balanced mutation guidance (additions AND removals)', async () => {
+    const { PROPOSER_SYSTEM_PROMPT } = await import('../proposer.js');
+
+    expect(PROPOSER_SYSTEM_PROMPT).toContain('additions AND removals');
+    expect(PROPOSER_SYSTEM_PROMPT).not.toContain('Prefer ADDITIVE changes');
+  });
+
+  it('includes MCP configuration guidance', async () => {
+    const { PROPOSER_SYSTEM_PROMPT } = await import('../proposer.js');
+
+    expect(PROPOSER_SYSTEM_PROMPT).toContain('.mcp.json');
+  });
 });
 
 // ─── parseProposerResponse ──────────────────────────────────────────────────
@@ -337,6 +360,71 @@ describe('parseProposerResponse', () => {
 
     const result = parseProposerResponse(raw);
     expect(result.reasoning).toBe('analysis');
+  });
+
+  it('accepts delete_section mutation with oldText', async () => {
+    const { parseProposerResponse } = await import('../proposer.js');
+
+    const raw = JSON.stringify({
+      reasoning: 'Remove bloated section.',
+      mutations: [
+        {
+          file: 'CLAUDE.md',
+          action: 'delete_section',
+          old_text: '## Bloated\n\nRemove this.',
+          rationale: 'Reducing noise.',
+        },
+      ],
+      expected_impact: {},
+    });
+
+    const result = parseProposerResponse(raw);
+
+    expect(result.mutations).toHaveLength(1);
+    expect(result.mutations[0].action).toBe('delete_section');
+    expect(result.mutations[0].oldText).toBe('## Bloated\n\nRemove this.');
+    expect(result.mutations[0].file).toBe('CLAUDE.md');
+  });
+
+  it('accepts delete_file mutation without oldText or newText', async () => {
+    const { parseProposerResponse } = await import('../proposer.js');
+
+    const raw = JSON.stringify({
+      reasoning: 'Remove obsolete rule file.',
+      mutations: [
+        {
+          file: 'rules/obsolete.md',
+          action: 'delete_file',
+          rationale: 'No longer needed.',
+        },
+      ],
+      expected_impact: {},
+    });
+
+    const result = parseProposerResponse(raw);
+
+    expect(result.mutations).toHaveLength(1);
+    expect(result.mutations[0].action).toBe('delete_file');
+    expect(result.mutations[0].file).toBe('rules/obsolete.md');
+  });
+
+  it('rejects delete_section without oldText', async () => {
+    const { parseProposerResponse } = await import('../proposer.js');
+
+    const raw = JSON.stringify({
+      reasoning: 'Missing old_text for delete_section.',
+      mutations: [
+        {
+          file: 'CLAUDE.md',
+          action: 'delete_section',
+          rationale: 'No old_text.',
+        },
+      ],
+      expected_impact: {},
+    });
+
+    const result = parseProposerResponse(raw);
+    expect(result.mutations).toHaveLength(0);
   });
 
   it('defaults expectedImpact to empty record when missing', async () => {

@@ -93,7 +93,7 @@ export interface Iteration {
 // Proposed change to harness
 export interface Mutation {
   file: string;
-  action: 'replace' | 'add_section' | 'create_file';
+  action: 'replace' | 'add_section' | 'create_file' | 'delete_section' | 'delete_file';
   oldText?: string;
   newText: string;
   rationale: string;

@@ -22,6 +22,16 @@ export async function snapshotBaseline(
 
   await copyDir(claudeDir, baselineDir);
   await copyDir(claudeDir, iter0Dir);
+
+  // Include .mcp.json in harness scope if it exists
+  const mcpJsonPath = path.join(projectRoot, '.mcp.json');
+  try {
+    await fs.access(mcpJsonPath);
+    await fs.copyFile(mcpJsonPath, path.join(baselineDir, '.mcp.json'));
+    await fs.copyFile(mcpJsonPath, path.join(iter0Dir, '.mcp.json'));
+  } catch {
+    // .mcp.json doesn't exist — skip
+  }
 }
 
 /**

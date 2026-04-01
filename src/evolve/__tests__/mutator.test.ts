@@ -278,6 +278,142 @@ describe('applyMutations', () => {
     expect(result.diffPatch).toContain('+# Modified');
   });
 
+  it('applies delete_section mutation removing matching text', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(
+      path.join(currentHarness, 'CLAUDE.md'),
+      '# Project\n\n## Bloated Section\n\nRemove this.\n\n## Keep This\n\nStay.',
+    );
+
+    const mutations: Mutation[] = [
+      {
+        file: 'CLAUDE.md',
+        action: 'delete_section',
+        oldText: '\n\n## Bloated Section\n\nRemove this.',
+        newText: '',
+        rationale: 'Remove bloat',
+      },
+    ];
+
+    const result = await applyMutations(currentHarness, nextIter, mutations);
+    const content = await fs.readFile(
+      path.join(result.newHarnessPath, 'CLAUDE.md'),
+      'utf-8',
+    );
+
+    expect(content).not.toContain('Bloated Section');
+    expect(content).not.toContain('Remove this.');
+    expect(content).toContain('## Keep This');
+    expect(content).toContain('Stay.');
+  });
+
+  it('skips delete_section when oldText is not found', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(path.join(currentHarness, 'CLAUDE.md'), '# Project\n\nKeep everything.');
+
+    const mutations: Mutation[] = [
+      {
+        file: 'CLAUDE.md',
+        action: 'delete_section',
+        oldText: 'text that does not exist',
+        newText: '',
+        rationale: 'Should be skipped',
+      },
+    ];
+
+    const result = await applyMutations(currentHarness, nextIter, mutations);
+    const content = await fs.readFile(
+      path.join(result.newHarnessPath, 'CLAUDE.md'),
+      'utf-8',
+    );
+
+    expect(content).toBe('# Project\n\nKeep everything.');
+  });
+
+  it('skips delete_section when file does not exist', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(path.join(currentHarness, 'CLAUDE.md'), '# Project');
+
+    const mutations: Mutation[] = [
+      {
+        file: 'nonexistent.md',
+        action: 'delete_section',
+        oldText: 'some text',
+        newText: '',
+        rationale: 'File missing',
+      },
+    ];
+
+    const result = await applyMutations(currentHarness, nextIter, mutations);
+    // Should not throw, harness should be intact
+    const content = await fs.readFile(
+      path.join(result.newHarnessPath, 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(content).toBe('# Project');
+  });
+
+  it('applies delete_file mutation removing the target file', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(path.join(currentHarness, 'rules'), { recursive: true });
+    await fs.writeFile(path.join(currentHarness, 'CLAUDE.md'), '# Project');
+    await fs.writeFile(path.join(currentHarness, 'rules', 'obsolete.md'), '# Obsolete');
+
+    const mutations: Mutation[] = [
+      {
+        file: 'rules/obsolete.md',
+        action: 'delete_file',
+        newText: '',
+        rationale: 'Remove obsolete rule',
+      },
+    ];
+
+    const result = await applyMutations(currentHarness, nextIter, mutations);
+
+    // CLAUDE.md should still exist
+    const content = await fs.readFile(
+      path.join(result.newHarnessPath, 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(content).toBe('# Project');
+
+    // obsolete.md should be gone
+    await expect(
+      fs.access(path.join(result.newHarnessPath, 'rules', 'obsolete.md')),
+    ).rejects.toThrow();
+  });
+
+  it('skips delete_file when file does not exist', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(path.join(currentHarness, 'CLAUDE.md'), '# Project');
+
+    const mutations: Mutation[] = [
+      {
+        file: 'nonexistent.md',
+        action: 'delete_file',
+        newText: '',
+        rationale: 'Already gone',
+      },
+    ];
+
+    // Should not throw
+    const result = await applyMutations(currentHarness, nextIter, mutations);
+    const content = await fs.readFile(
+      path.join(result.newHarnessPath, 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(content).toBe('# Project');
+  });
+
   it('returns empty diff patch when no mutations applied', async () => {
     const currentHarness = path.join(tempDir, 'current');
     const nextIter = path.join(tempDir, 'iter1');
