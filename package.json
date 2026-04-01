@@ -48,7 +48,8 @@
     "commander": "^13.0.0",
     "kairn-cli": "^1.7.0",
     "openai": "^6.33.0",
-    "ora": "^9.3.0"
+    "ora": "^9.3.0",
+    "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
