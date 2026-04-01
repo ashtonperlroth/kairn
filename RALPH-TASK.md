@@ -118,16 +118,18 @@ Repeat max 3 times. If still failing, stop and report.
 
 ---
 
-## For v2.1.0 Specifically
+## For v2.2.0 Specifically
 
-The design doc is in `docs/design/v2.0-kairn-evolve.md` (same doc covers v2.0-v2.4, sections v2.1.0 starts at line ~292).
+The design doc is in `docs/design/v2.0-kairn-evolve.md` (same doc covers v2.0-v2.4, section v2.2.0 starts at line ~518).
 
 Key features to implement:
-- Proposer agent (reads traces, proposes mutations)
-- Harness diff engine (applies mutations)
-- Iteration tracking (state, history, rollback)
-- Evolution loop orchestration (evaluate → propose → mutate → repeat)
-- Cost tracking (tokens, API $)
-- Integration tests
+- Counterfactual diagnosis ("mutation X helped task A but hurt task B — why?")
+- Per-task trace diffing between iterations
+- `kairn evolve report` — Markdown summary of evolution run
+- `kairn evolve report --json` — machine-readable for CI
+- Evolution leaderboard (iterations × tasks × scores table)
+- `kairn evolve diff <iter1> <iter2>` — harness changes between iterations
 
-PLAN-v2.1.0.md has 15 steps grouped into 3 parallel groups.
+Builds on v2.1.0: uses `EvolveResult`, `IterationLog`, `Trace`, `Proposal`, `Mutation` types from `src/evolve/types.ts`, and `writeIterationLog()` from `src/evolve/trace.ts`.
+
+PLAN-v2.2.0.md has 10 steps grouped into 3 parallel groups (A: 6 parallel, B: 3 parallel, C: 1 final).

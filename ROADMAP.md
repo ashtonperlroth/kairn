@@ -148,24 +148,24 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 
 Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evolve.md)
 
-### v2.0.0 — Task Definition & Trace Infrastructure
-- [ ] Eval template menu — 6 built-in templates (add-feature, fix-bug, refactor, test-writing, config-change, documentation)
-- [ ] Auto-generated evals — LLM reads `.claude/CLAUDE.md` + project structure, selects templates, generates 3-5 concrete project-specific tasks
-- [ ] `kairn evolve init` — scaffold evolution workspace (`.kairn-evolve/`), auto-generate `tasks.yaml`, interactive "add another eval?" flow
-- [ ] Baseline snapshot (`kairn evolve baseline`) — copy current `.claude/` as iteration 0
-- [ ] Task runner — execute agent on a single task, capture full trace to filesystem
-- [ ] Trace schema: `traces/{iteration}/{task_id}/` containing stdout, tool_calls.json, files_changed.json, score.json
-- [ ] Pass/fail scorer (default) + LLM-as-judge scorer (configurable)
-- [ ] `kairn evolve run --task <id>` — run a single task against current environment
+### v2.0.0 ✅ — Task Definition & Trace Infrastructure
+- [x] Eval template menu — 6 built-in templates (add-feature, fix-bug, refactor, test-writing, config-change, documentation)
+- [x] Auto-generated evals — LLM reads `.claude/CLAUDE.md` + project structure, selects templates, generates 3-5 concrete project-specific tasks
+- [x] `kairn evolve init` — scaffold evolution workspace (`.kairn-evolve/`), auto-generate `tasks.yaml`, interactive "add another eval?" flow
+- [x] Baseline snapshot (`kairn evolve baseline`) — copy current `.claude/` as iteration 0
+- [x] Task runner — execute agent on a single task, capture full trace to filesystem
+- [x] Trace schema: `traces/{iteration}/{task_id}/` containing stdout, tool_calls.json, files_changed.json, score.json
+- [x] Pass/fail scorer (default) + LLM-as-judge scorer (configurable) + rubric scorer
+- [x] `kairn evolve run --task <id>` — run a single task against current environment
 
-### v2.1.0 — The Evolution Loop
-- [ ] `kairn evolve run` — full evaluation (run all tasks, aggregate scores)
-- [ ] Proposer agent — reads trace filesystem, diagnoses failures, proposes harness mutations
-- [ ] Harness diff engine — apply proposed mutations to CLAUDE.md / commands / rules / agents
-- [ ] Iteration loop: evaluate → diagnose → mutate → re-evaluate
-- [ ] `kairn evolve --iterations N` — control search budget (default: 5)
-- [ ] Iteration log: `iterations/{N}/` with mutation_diff.patch, scores.json, proposer_reasoning.md
-- [ ] Rollback on regression (score drops → revert to previous best)
+### v2.1.0 ✅ — The Evolution Loop
+- [x] `kairn evolve run` — full evaluation (run all tasks, aggregate scores)
+- [x] Proposer agent — reads trace filesystem, diagnoses failures, proposes harness mutations
+- [x] Harness diff engine — apply proposed mutations to CLAUDE.md / commands / rules / agents
+- [x] Iteration loop: evaluate → diagnose → mutate → re-evaluate
+- [x] `kairn evolve run --iterations N` — control search budget (default: 5)
+- [x] Iteration log: `iterations/{N}/` with mutation_diff.patch, scores.json, proposer_reasoning.md
+- [x] Rollback on regression (score drops → revert to previous best)
 
 ### v2.2.0 — Diagnosis & Reporting
 - [ ] Counterfactual diagnosis ("this CLAUDE.md change helped task A but hurt task B — why?")
