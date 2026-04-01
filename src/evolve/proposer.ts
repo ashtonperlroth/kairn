@@ -125,26 +125,27 @@ export function buildProposerUserMessage(
   tasks: Task[],
   history: IterationLog[],
 ): string {
-  const sections: string[] = [];
+  // Priority-based context assembly: harness + tasks are never truncated,
+  // traces and history are progressively reduced to fit within budget.
 
-  // Section 1: Current harness files
-  sections.push('## Current Harness Files\n');
+  // Section 1: Current harness files (highest priority — never truncated)
+  const harnessSection: string[] = ['## Current Harness Files\n'];
   const fileEntries = Object.entries(harnessFiles);
   if (fileEntries.length === 0) {
-    sections.push('(No harness files found)\n');
+    harnessSection.push('(No harness files found)\n');
   } else {
     for (const [filePath, content] of fileEntries) {
-      sections.push(`### ${filePath}\n\`\`\`\n${content}\n\`\`\`\n`);
+      harnessSection.push(`### ${filePath}\n\`\`\`\n${content}\n\`\`\`\n`);
     }
   }
 
-  // Section 2: Task definitions
-  sections.push('## Task Definitions\n');
+  // Section 2: Task definitions (high priority — never truncated)
+  const taskSection: string[] = ['## Task Definitions\n'];
   if (tasks.length === 0) {
-    sections.push('(No tasks defined)\n');
+    taskSection.push('(No tasks defined)\n');
   } else {
     for (const task of tasks) {
-      sections.push(
+      taskSection.push(
         `### Task: ${task.id}\n` +
         `- Template: ${task.template}\n` +
         `- Description: ${task.description}\n` +
@@ -154,62 +155,103 @@ export function buildProposerUserMessage(
     }
   }
 
-  // Section 3: Execution traces
-  sections.push('## Execution Traces\n');
-  if (traces.length === 0) {
-    sections.push('(No traces available)\n');
-  } else {
+  const fixedContent = harnessSection.join('\n') + '\n' + taskSection.join('\n');
+  const remainingBudget = MAX_CONTEXT_CHARS - fixedContent.length;
+
+  if (remainingBudget <= 0) {
+    return fixedContent + '\n\n[...traces and history omitted — harness + tasks fill context budget...]';
+  }
+
+  // Section 3: Execution traces (medium priority — stdout truncated progressively)
+  // Allocate 70% of remaining budget to traces, 30% to history
+  const traceBudget = Math.floor(remainingBudget * 0.7);
+  const historyBudget = remainingBudget - traceBudget;
+
+  const traceSection = buildTraceSection(traces, traceBudget);
+  const historySection = buildHistorySection(history, historyBudget);
+
+  return fixedContent + '\n' + traceSection + '\n' + historySection;
+}
+
+/**
+ * Build the trace section, fitting within the given character budget.
+ * Progressively reduces per-trace stdout limit if the section exceeds budget.
+ */
+function buildTraceSection(traces: Trace[], budget: number): string {
+  if (traces.length === 0) return '## Execution Traces\n\n(No traces available)\n';
+
+  // Try with default limit, halve stdout limit until it fits
+  let stdoutLimit = STDOUT_TRUNCATION_LIMIT;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const parts: string[] = ['## Execution Traces\n'];
     for (const trace of traces) {
       const scoreNum = trace.score.score !== undefined ? trace.score.score : (trace.score.pass ? 100 : 0);
-      const truncatedStdout = truncateStdout(trace.stdout, STDOUT_TRUNCATION_LIMIT);
+      const truncatedStdout = truncateStdout(trace.stdout, stdoutLimit);
       const filesChangedList = Object.entries(trace.filesChanged)
         .map(([f, action]) => `  - ${f}: ${action}`)
         .join('\n');
 
-      sections.push(
+      parts.push(
         `### Trace: ${trace.taskId}\n` +
         `- Pass: ${trace.score.pass}\n` +
         `- Score: ${scoreNum}\n` +
         (trace.score.details ? `- Details: ${trace.score.details}\n` : '') +
         `- Duration: ${trace.timing.durationMs}ms\n` +
         `- Files changed:\n${filesChangedList || '  (none)'}\n` +
-        `- Stdout (last ${STDOUT_TRUNCATION_LIMIT} chars):\n\`\`\`\n${truncatedStdout}\n\`\`\`\n`,
+        `- Stdout (last ${stdoutLimit} chars):\n\`\`\`\n${truncatedStdout}\n\`\`\`\n`,
       );
     }
+    const result = parts.join('\n');
+    if (result.length <= budget) return result;
+    stdoutLimit = Math.floor(stdoutLimit / 2);
   }
 
-  // Section 4: Iteration history
-  sections.push('## Iteration History\n');
-  if (history.length === 0) {
-    sections.push('(No previous iterations)\n');
-  } else {
-    for (const log of history) {
+  // Final fallback: scores-only summary
+  const summary = ['## Execution Traces (summary — stdout omitted to fit budget)\n'];
+  for (const trace of traces) {
+    const scoreNum = trace.score.score !== undefined ? trace.score.score : (trace.score.pass ? 100 : 0);
+    summary.push(`- ${trace.taskId}: ${scoreNum} (pass=${trace.score.pass})\n`);
+  }
+  return summary.join('\n');
+}
+
+/**
+ * Build the history section, fitting within the given character budget.
+ * Drops oldest iterations first if it exceeds budget.
+ */
+function buildHistorySection(history: IterationLog[], budget: number): string {
+  if (history.length === 0) return '## Iteration History\n\n(No previous iterations)\n';
+
+  // Try with full history, then drop oldest entries until it fits
+  let entries = [...history];
+  while (entries.length > 0) {
+    const parts: string[] = ['## Iteration History\n'];
+    if (entries.length < history.length) {
+      parts.push(`(Showing ${entries.length}/${history.length} most recent iterations)\n`);
+    }
+    for (const log of entries) {
       const taskScores = Object.entries(log.taskResults)
         .map(([id, s]) => `  - ${id}: ${s.score !== undefined ? s.score : (s.pass ? 100 : 0)} (pass=${s.pass})`)
         .join('\n');
 
-      sections.push(
+      parts.push(
         `### Iteration ${log.iteration} — Score: ${log.score}\n` +
         `- Task results:\n${taskScores}\n`,
       );
 
       if (log.proposal) {
-        sections.push(
+        parts.push(
           `- Proposal reasoning: ${log.proposal.reasoning}\n` +
           `- Mutations: ${log.proposal.mutations.length} change(s)\n`,
         );
       }
     }
+    const result = parts.join('\n');
+    if (result.length <= budget) return result;
+    entries = entries.slice(1); // drop oldest
   }
 
-  let message = sections.join('\n');
-
-  // Truncate if total context exceeds limit to avoid token overflow
-  if (message.length > MAX_CONTEXT_CHARS) {
-    message = message.slice(0, MAX_CONTEXT_CHARS) + '\n\n[...context truncated to fit token limit...]';
-  }
-
-  return message;
+  return '## Iteration History\n\n(History omitted to fit context budget)\n';
 }
 
 /**
