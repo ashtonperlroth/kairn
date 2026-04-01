@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { input, password, select } from "@inquirer/prompts";
+import { confirm, input, password, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
@@ -8,7 +8,8 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { loadConfig, saveConfig, getConfigPath, getTemplatesDir } from "../config.js";
-import type { KairnConfig, LLMProvider } from "../types.js";
+import type { KairnConfig, LLMProvider, AuthType } from "../types.js";
+import { getAccessToken } from "../auth/keychain.js";
 import { PROVIDER_CONFIGS, PROVIDER_MODELS, PROVIDER_CHOICES, getProviderName, getBaseURL, getVerifyModel } from "../providers.js";
 import { ui } from "../ui.js";
 import { printFullBanner } from "../logo.js";
@@ -138,35 +139,57 @@ export const initCommand = new Command("init")
       });
     }
 
-    const apiKey = await password({
-      message: `${providerDisplayName} API key${provider === "other" ? " (Enter to skip)" : ""}`,
-      mask: "*",
-    });
+    // For Anthropic: offer Claude Code subscription auth as an alternative
+    let apiKey = "";
+    let authType: AuthType = "api-key";
 
-    if (!apiKey && provider !== "other") {
-      console.log(ui.error("No API key provided. Aborting."));
-      process.exit(1);
+    if (provider === "anthropic") {
+      const oauthToken = await getAccessToken();
+      if (oauthToken) {
+        const useOAuth = await confirm({
+          message: "Claude Code subscription detected. Use it instead of an API key? (experimental — may break)",
+          default: true,
+        });
+        if (useOAuth) {
+          authType = "claude-code-oauth";
+          console.log(ui.warn("Using Claude Code OAuth token. This is undocumented and may break at any time."));
+          console.log(ui.success("OAuth token validated"));
+        }
+      }
     }
 
-    if (apiKey) {
-      console.log(chalk.dim("\n  Verifying API key..."));
-      const valid = await verifyKey(provider, apiKey, baseURL, model);
+    if (authType === "api-key") {
+      apiKey = await password({
+        message: `${providerDisplayName} API key${provider === "other" ? " (Enter to skip)" : ""}`,
+        mask: "*",
+      });
 
-      if (!valid) {
-        console.log(ui.error("Invalid API key. Check your key and try again."));
+      if (!apiKey && provider !== "other") {
+        console.log(ui.error("No API key provided. Aborting."));
         process.exit(1);
       }
 
-      console.log(ui.success("API key verified"));
-    } else {
-      console.log(ui.warn("No API key — skipping verification"));
+      if (apiKey) {
+        console.log(chalk.dim("\n  Verifying API key..."));
+        const valid = await verifyKey(provider, apiKey, baseURL, model);
+
+        if (!valid) {
+          console.log(ui.error("Invalid API key. Check your key and try again."));
+          process.exit(1);
+        }
+
+        console.log(ui.success("API key verified"));
+      } else {
+        console.log(ui.warn("No API key — skipping verification"));
+      }
     }
 
     const config: KairnConfig = {
       provider,
-      api_key: apiKey || "",
+      api_key: apiKey,
       model,
       ...(baseURL ? { base_url: baseURL } : {}),
+      ...(authType !== "api-key" ? { auth_type: authType } : {}),
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     };

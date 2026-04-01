@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { getProviderName, getBaseURL } from "./providers.js";
+import { getAccessToken } from "./auth/keychain.js";
 import type { KairnConfig } from "./types.js";
 
 /**
@@ -77,8 +78,20 @@ export async function callLLM(
   const jsonMode = options.jsonMode ?? false;
   const providerName = getProviderName(config.provider);
 
+  // Resolve API key — use OAuth token from keychain if configured
+  let apiKey = config.api_key;
+  if (config.auth_type === 'claude-code-oauth') {
+    const oauthToken = await getAccessToken();
+    if (!oauthToken) {
+      throw new Error(
+        'Claude Code OAuth token unavailable or expired. Run `kairn init` to reconfigure, or launch Claude Code to refresh the token.'
+      );
+    }
+    apiKey = oauthToken;
+  }
+
   if (config.provider === "anthropic") {
-    const client = new Anthropic({ apiKey: config.api_key });
+    const client = new Anthropic({ apiKey });
 
     const messages: Array<{ role: "user" | "assistant"; content: string }> = [
       { role: "user", content: userMessage },
@@ -103,7 +116,7 @@ export async function callLLM(
 
   // All other providers use OpenAI-compatible API
   const resolvedBaseURL = getBaseURL(config.provider, config.base_url);
-  const clientOptions: { apiKey: string; baseURL?: string } = { apiKey: config.api_key };
+  const clientOptions: { apiKey: string; baseURL?: string } = { apiKey };
   if (resolvedBaseURL) clientOptions.baseURL = resolvedBaseURL;
 
   const client = new OpenAI(clientOptions);

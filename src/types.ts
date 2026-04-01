@@ -8,6 +8,8 @@ export type LLMProvider =
   | "groq"
   | "other";
 
+export type AuthType = 'api-key' | 'claude-code-oauth';
+
 export interface KairnConfig {
   provider: LLMProvider;
   api_key: string;
@@ -15,6 +17,7 @@ export interface KairnConfig {
   base_url?: string;
   default_runtime: string;
   created_at: string;
+  auth_type?: AuthType;
 }
 
 export interface ToolSelection {
