@@ -359,6 +359,11 @@ export function parseToolCalls(stdout: string): unknown[] {
  */
 /**
  * Compute population standard deviation for a list of numbers.
+ *
+ * Uses population stddev (divide by N) rather than sample stddev (divide by N-1).
+ * For typical run counts (3-5), this slightly underestimates variance compared
+ * to sample stddev, but is consistent with reporting the observed spread of
+ * the actual runs performed rather than estimating the population parameter.
  */
 function computeStddev(values: number[], mean: number): number {
   if (values.length <= 1) return 0;
@@ -385,6 +390,7 @@ export async function evaluateAll(
     if (effectiveRuns > 1 && config) {
       // Multi-run mode: run the task N times and compute variance
       const runScores: number[] = [];
+      let passCount = 0;
 
       for (let run = 0; run < effectiveRuns; run++) {
         const traceDir = path.join(
@@ -401,7 +407,7 @@ export async function evaluateAll(
           message: `Run ${run + 1}/${effectiveRuns} of ${task.id}`,
         });
 
-        const taskResult = await runTask(task, harnessPath, traceDir, iteration, projectRoot);
+        await runTask(task, harnessPath, traceDir, iteration, projectRoot);
 
         const stdout = await fs
           .readFile(path.join(traceDir, 'stdout.log'), 'utf-8')
@@ -413,6 +419,7 @@ export async function evaluateAll(
         await writeScore(traceDir, score);
 
         runScores.push(score.score ?? (score.pass ? 100 : 0));
+        if (score.pass) passCount++;
       }
 
       // Compute mean and stddev
@@ -420,7 +427,7 @@ export async function evaluateAll(
       const stddev = computeStddev(runScores, mean);
 
       results[task.id] = {
-        pass: mean >= 50,
+        pass: passCount > effectiveRuns / 2,
         score: mean,
         details: `Mean of ${effectiveRuns} runs`,
         variance: {

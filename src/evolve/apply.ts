@@ -134,8 +134,18 @@ export async function applyEvolution(
   // Generate diff preview before overwriting
   const diffPreview = await generateDiff(claudeDir, harnessPath);
 
-  // List files in the target harness (these are the files that will be written)
-  const filesChanged = await listFilesRecursive(harnessPath);
+  // Compute actual delta: files that differ between current .claude/ and target harness
+  const currentFiles = await listFilesRecursive(claudeDir);
+  const targetFiles = await listFilesRecursive(harnessPath);
+  const allPaths = new Set([...currentFiles, ...targetFiles]);
+  const filesChanged: string[] = [];
+  for (const filePath of allPaths) {
+    const currentContent = await fs.readFile(path.join(claudeDir, filePath), 'utf-8').catch(() => null);
+    const targetContent = await fs.readFile(path.join(harnessPath, filePath), 'utf-8').catch(() => null);
+    if (currentContent !== targetContent) {
+      filesChanged.push(filePath);
+    }
+  }
 
   // Replace .claude/ with the target harness
   await fs.rm(claudeDir, { recursive: true, force: true });

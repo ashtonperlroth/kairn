@@ -417,6 +417,9 @@ describe('Evolution loop integration', () => {
     expect(mockPropose).not.toHaveBeenCalled();
     expect(mockApplyMutations).not.toHaveBeenCalled();
 
+    // Exactly one iteration log written (iteration 0)
+    expect(mockWriteIterationLog).toHaveBeenCalledTimes(1);
+
     // Perfect score event emitted
     const perfectEvents = events.filter((e) => e.type === 'perfect-score');
     expect(perfectEvents).toHaveLength(1);
