@@ -12,8 +12,9 @@ import { snapshotBaseline } from '../evolve/baseline.js';
 import { runTask } from '../evolve/runner.js';
 import { scoreTask } from '../evolve/scorers.js';
 import { writeScore } from '../evolve/trace.js';
+import { evolve } from '../evolve/loop.js';
 import { loadConfig } from '../config.js';
-import type { EvolveConfig, Task, TasksFile, TaskResult } from '../evolve/types.js';
+import type { EvolveConfig, Task, TasksFile, TaskResult, LoopProgressEvent } from '../evolve/types.js';
 
 const DEFAULT_CONFIG: EvolveConfig = {
   model: 'claude-sonnet-4-6',
@@ -22,6 +23,26 @@ const DEFAULT_CONFIG: EvolveConfig = {
   maxIterations: 5,
   parallelTasks: 1,
 };
+
+/**
+ * Load EvolveConfig from a workspace's config.yaml.
+ * Falls back to DEFAULT_CONFIG for any missing fields.
+ */
+export async function loadEvolveConfigFromWorkspace(workspacePath: string): Promise<EvolveConfig> {
+  try {
+    const configStr = await fs.readFile(path.join(workspacePath, 'config.yaml'), 'utf-8');
+    const parsed = yamlParse(configStr) as Record<string, unknown>;
+    return {
+      model: (parsed.model as string) ?? DEFAULT_CONFIG.model,
+      proposerModel: (parsed.proposer_model as string) ?? DEFAULT_CONFIG.proposerModel,
+      scorer: (parsed.scorer as EvolveConfig['scorer']) ?? DEFAULT_CONFIG.scorer,
+      maxIterations: (parsed.max_iterations as number) ?? DEFAULT_CONFIG.maxIterations,
+      parallelTasks: (parsed.parallel_tasks as number) ?? DEFAULT_CONFIG.parallelTasks,
+    };
+  } catch {
+    return { ...DEFAULT_CONFIG };
+  }
+}
 
 export const evolveCommand = new Command('evolve')
   .description('Evolve your agent environment through automated optimization');
@@ -167,7 +188,8 @@ evolveCommand
   .command('run')
   .description('Run tasks against the current harness')
   .option('--task <id>', 'Run a specific task by ID')
-  .action(async (options: { task?: string }) => {
+  .option('--iterations <n>', 'Number of evolution iterations', '5')
+  .action(async (options: { task?: string; iterations?: string }) => {
     try {
       const projectRoot = process.cwd();
       const workspace = path.join(projectRoot, '.kairn-evolve');
@@ -198,51 +220,129 @@ evolveCommand
         process.exit(1);
       }
 
-      // Filter tasks
-      const tasksToRun = options.task
-        ? parsed.tasks.filter(t => t.id === options.task)
-        : parsed.tasks;
+      // Decision: --task means single-task mode, otherwise full evolution loop
+      if (options.task) {
+        // --- Single task mode (existing behavior) ---
+        const tasksToRun = parsed.tasks.filter(t => t.id === options.task);
 
-      if (tasksToRun.length === 0) {
-        console.log(ui.error(`Task "${options.task}" not found in tasks.yaml`));
-        process.exit(1);
-      }
-
-      console.log(ui.info(`Running ${tasksToRun.length} task(s)...`));
-      console.log('');
-
-      const config = await loadConfig();
-      const harnessPath = path.join(projectRoot, '.claude');
-      const results: TaskResult[] = [];
-
-      for (const task of tasksToRun) {
-        const traceDir = path.join(workspace, 'traces', '0', task.id);
-        const spinner = ora(`Running: ${task.id}`).start();
-
-        const result = await runTask(task, harnessPath, traceDir, 0);
-
-        // Score the result
-        if (config) {
-          const stdout = await fs.readFile(path.join(traceDir, 'stdout.log'), 'utf-8').catch(() => '');
-          const stderr = await fs.readFile(path.join(traceDir, 'stderr.log'), 'utf-8').catch(() => '');
-          const score = await scoreTask(task, traceDir, stdout, stderr, config);
-          result.score = score;
-          await writeScore(traceDir, score);
+        if (tasksToRun.length === 0) {
+          console.log(ui.error(`Task "${options.task}" not found in tasks.yaml`));
+          process.exit(1);
         }
 
-        results.push(result);
+        console.log(ui.info(`Running ${tasksToRun.length} task(s)...`));
+        console.log('');
 
-        const status = result.score.pass ? chalk.green('PASS') : chalk.red('FAIL');
-        const scoreStr = result.score.score !== undefined ? chalk.dim(` (${result.score.score}%)`) : '';
-        spinner.stop();
-        console.log(`  ${status}  ${task.id}${scoreStr}${result.score.details ? chalk.dim(` — ${result.score.details}`) : ''}`);
+        const config = await loadConfig();
+        const harnessPath = path.join(projectRoot, '.claude');
+        const results: TaskResult[] = [];
+
+        for (const task of tasksToRun) {
+          const traceDir = path.join(workspace, 'traces', '0', task.id);
+          const spinner = ora(`Running: ${task.id}`).start();
+
+          const result = await runTask(task, harnessPath, traceDir, 0);
+
+          // Score the result
+          if (config) {
+            const stdout = await fs.readFile(path.join(traceDir, 'stdout.log'), 'utf-8').catch(() => '');
+            const stderr = await fs.readFile(path.join(traceDir, 'stderr.log'), 'utf-8').catch(() => '');
+            const score = await scoreTask(task, traceDir, stdout, stderr, config);
+            result.score = score;
+            await writeScore(traceDir, score);
+          }
+
+          results.push(result);
+
+          const status = result.score.pass ? chalk.green('PASS') : chalk.red('FAIL');
+          const scoreStr = result.score.score !== undefined ? chalk.dim(` (${result.score.score}%)`) : '';
+          spinner.stop();
+          console.log(`  ${status}  ${task.id}${scoreStr}${result.score.details ? chalk.dim(` — ${result.score.details}`) : ''}`);
+        }
+
+        // Summary
+        const passed = results.filter(r => r.score.pass).length;
+        console.log('');
+        console.log(ui.info(`Results: ${passed}/${results.length} passed`));
+        console.log(ui.info('Traces written to .kairn-evolve/traces/0/'));
+      } else {
+        // --- Full evolution loop mode ---
+        const kairnConfig = await loadConfig();
+        if (!kairnConfig) {
+          console.log(ui.error('No config found. Run kairn init first.'));
+          process.exit(1);
+        }
+
+        const evolveConfig = await loadEvolveConfigFromWorkspace(workspace);
+        evolveConfig.maxIterations = parseInt(options.iterations ?? '5', 10);
+
+        // Verify baseline exists
+        try {
+          await fs.access(path.join(workspace, 'iterations', '0', 'harness'));
+        } catch {
+          console.log(ui.error('No baseline harness found. Run kairn evolve baseline first.'));
+          process.exit(1);
+        }
+
+        // Run evolution with progress callback
+        const result = await evolve(workspace, parsed.tasks, kairnConfig, evolveConfig, (event: LoopProgressEvent) => {
+          switch (event.type) {
+            case 'iteration-start':
+              console.log(ui.section(`Iteration ${event.iteration}`));
+              break;
+            case 'iteration-scored': {
+              const scoreColor = event.score !== undefined && event.score >= 100
+                ? chalk.green
+                : event.score !== undefined && event.score >= 60
+                  ? chalk.yellow
+                  : chalk.red;
+              console.log(`  Score: ${scoreColor((event.score?.toFixed(1) ?? '0') + '%')}`);
+              break;
+            }
+            case 'rollback':
+              console.log(chalk.yellow(`  Warning: ${event.message ?? 'Regression detected'}`));
+              break;
+            case 'proposing':
+              console.log(chalk.dim('  Proposer analyzing traces...'));
+              break;
+            case 'mutations-applied':
+              console.log(chalk.dim(`  Applied ${event.mutationCount ?? 0} mutation(s)`));
+              break;
+            case 'perfect-score':
+              console.log(chalk.green('  Perfect score. Stopping.'));
+              break;
+            case 'complete':
+              break; // Summary printed below
+          }
+        });
+
+        // Print summary
+        console.log(ui.section('Evolution Summary'));
+        console.log(`  Iterations:    ${result.iterations.length}`);
+        console.log(`  Baseline:      ${result.baselineScore.toFixed(1)}%`);
+        console.log(`  Best:          ${chalk.green(result.bestScore.toFixed(1) + '%')} (iteration ${result.bestIteration})`);
+        const improvement = result.bestScore - result.baselineScore;
+        if (improvement > 0) {
+          console.log(`  Improvement:   ${chalk.green('+' + improvement.toFixed(1) + ' points')}`);
+        } else {
+          console.log(`  Improvement:   ${improvement.toFixed(1)} points`);
+        }
+        console.log('');
+
+        // Iteration table
+        console.log('  Iter  Score     Mutations  Status');
+        for (const iter of result.iterations) {
+          const scoreStr = iter.score.toFixed(1).padStart(6) + '%';
+          const mutations = iter.proposal?.mutations.length ?? 0;
+          const mutStr = mutations > 0 ? mutations.toString() : '-';
+          let status = 'evaluated';
+          if (iter.iteration === 0) status = 'baseline';
+          else if (!iter.proposal && !iter.diffPatch) status = 'rollback';
+          else if (iter.score >= 100) status = 'perfect';
+          else if (iter.iteration === result.bestIteration) status = 'best';
+          console.log(`  ${iter.iteration.toString().padStart(4)}  ${scoreStr}  ${mutStr.padStart(9)}  ${status}`);
+        }
       }
-
-      // Summary
-      const passed = results.filter(r => r.score.pass).length;
-      console.log('');
-      console.log(ui.info(`Results: ${passed}/${results.length} passed`));
-      console.log(ui.info('Traces written to .kairn-evolve/traces/0/'));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(ui.error(msg));

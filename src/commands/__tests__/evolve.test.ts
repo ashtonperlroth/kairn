@@ -106,6 +106,12 @@ vi.mock("../../evolve/trace.js", () => ({
   writeScore: writeScoreMock,
 }));
 
+// Mock evolve loop
+const evolveMock = vi.fn();
+vi.mock("../../evolve/loop.js", () => ({
+  evolve: evolveMock,
+}));
+
 // Mock loadConfig
 const loadConfigMock = vi.fn();
 vi.mock("../../config.js", () => ({
@@ -262,8 +268,9 @@ describe("evolve command imports", () => {
     // The module should use yaml.parse() instead
     const mod = await import("../evolve.js");
     const moduleExports = Object.keys(mod);
-    // The only export should be evolveCommand
+    // Exports should include evolveCommand and loadEvolveConfigFromWorkspace
     expect(moduleExports).toContain("evolveCommand");
+    expect(moduleExports).toContain("loadEvolveConfigFromWorkspace");
     expect(moduleExports).not.toContain("parseTaskIds");
   });
 });
@@ -478,7 +485,7 @@ describe("evolve run action", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("parses tasks.yaml with yaml package and runs all tasks", async () => {
+  it("parses tasks.yaml with yaml package and runs a single task with --task", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
     scoreTaskMock.mockResolvedValue(score);
@@ -492,10 +499,10 @@ describe("evolve run action", () => {
     writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
-    await runCmd?.parseAsync(["node", "run"]);
+    await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
-    // Both tasks should be run
-    expect(runTaskMock).toHaveBeenCalledTimes(2);
+    // Single task should be run
+    expect(runTaskMock).toHaveBeenCalledTimes(1);
   });
 
   it("filters to specific task with --task option", async () => {
@@ -523,7 +530,7 @@ describe("evolve run action", () => {
     );
   });
 
-  it("calls scoreTask after runTask for each task", async () => {
+  it("calls scoreTask after runTask for the specified task", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
     scoreTaskMock.mockResolvedValue(score);
@@ -537,12 +544,12 @@ describe("evolve run action", () => {
     writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
-    await runCmd?.parseAsync(["node", "run"]);
+    await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
-    expect(scoreTaskMock).toHaveBeenCalledTimes(2);
+    expect(scoreTaskMock).toHaveBeenCalledTimes(1);
   });
 
-  it("calls writeScore after scoring each task", async () => {
+  it("calls writeScore after scoring the specified task", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
     scoreTaskMock.mockResolvedValue(score);
@@ -556,16 +563,16 @@ describe("evolve run action", () => {
     writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
-    await runCmd?.parseAsync(["node", "run"]);
+    await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
-    expect(writeScoreMock).toHaveBeenCalledTimes(2);
+    expect(writeScoreMock).toHaveBeenCalledTimes(1);
     expect(writeScoreMock).toHaveBeenCalledWith(
       expect.any(String),
       score,
     );
   });
 
-  it("uses ora spinner per task during run", async () => {
+  it("uses ora spinner for --task single-task run", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
     scoreTaskMock.mockResolvedValue(score);
@@ -581,11 +588,11 @@ describe("evolve run action", () => {
     const ora = (await import("ora")).default;
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
-    await runCmd?.parseAsync(["node", "run"]);
+    await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
-    // ora should be called once per task (2 tasks)
-    expect(ora).toHaveBeenCalledTimes(2);
-    expect(spinnerMock.stop).toHaveBeenCalledTimes(2);
+    // ora should be called once for the single task
+    expect(ora).toHaveBeenCalledTimes(1);
+    expect(spinnerMock.stop).toHaveBeenCalledTimes(1);
   });
 
   it("passes full Task objects from YAML to runTask (not just IDs)", async () => {
@@ -602,7 +609,7 @@ describe("evolve run action", () => {
     writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
-    await runCmd?.parseAsync(["node", "run"]);
+    await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
     // The first argument to runTask should be a full Task object
     const firstCallTask = runTaskMock.mock.calls[0][0] as Task;
@@ -613,16 +620,13 @@ describe("evolve run action", () => {
     expect(firstCallTask.timeout).toBe(300);
   });
 
-  it("displays summary with pass/fail counts", async () => {
+  it("displays summary with pass/fail counts in single-task mode", async () => {
     const passScore = makeSampleScore({ pass: true });
-    const failScore = makeSampleScore({ pass: false, score: 0 });
 
     runTaskMock
-      .mockResolvedValueOnce(makeSampleTaskResult({ taskId: "task-1", score: passScore }))
-      .mockResolvedValueOnce(makeSampleTaskResult({ taskId: "task-2", score: failScore }));
+      .mockResolvedValueOnce(makeSampleTaskResult({ taskId: "task-1", score: passScore }));
     scoreTaskMock
-      .mockResolvedValueOnce(passScore)
-      .mockResolvedValueOnce(failScore);
+      .mockResolvedValueOnce(passScore);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -633,11 +637,11 @@ describe("evolve run action", () => {
     writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
-    await runCmd?.parseAsync(["node", "run"]);
+    await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
-    // Check that summary line with "1/2 passed" was logged
+    // Check that summary line with "1/1 passed" was logged
     const logCalls = consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0]));
-    const summaryLine = logCalls.find((line: string) => line.includes("1") && line.includes("2") && line.includes("passed"));
+    const summaryLine = logCalls.find((line: string) => line.includes("1") && line.includes("passed"));
     expect(summaryLine).toBeDefined();
   });
 });
