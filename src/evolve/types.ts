@@ -26,6 +26,12 @@ export interface Score {
   details?: string;
   reasoning?: string;
   breakdown?: Array<{ criterion: string; score: number; weight: number }>;
+  variance?: {
+    runs: number;
+    scores: number[];
+    mean: number;
+    stddev: number;
+  };
 }
 
 // Full execution trace for a single task run
@@ -51,6 +57,7 @@ export interface EvolveConfig {
   scorer: 'pass-fail' | 'llm-judge' | 'rubric';
   maxIterations: number;
   parallelTasks: number;
+  runsPerTask: number;
 }
 
 // Shape of parsed tasks.yaml
@@ -188,7 +195,7 @@ export interface EvolutionReport {
 
 // Progress events emitted during the evolution loop
 export interface LoopProgressEvent {
-  type: 'iteration-start' | 'iteration-scored' | 'rollback' | 'proposing' | 'proposer-error' | 'mutations-applied' | 'perfect-score' | 'task-start' | 'task-scored' | 'complete';
+  type: 'iteration-start' | 'iteration-scored' | 'rollback' | 'proposing' | 'proposer-error' | 'mutations-applied' | 'perfect-score' | 'task-start' | 'task-scored' | 'task-run' | 'complete';
   iteration: number;
   score?: number;
   mutationCount?: number;

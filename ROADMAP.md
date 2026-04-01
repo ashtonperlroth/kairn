@@ -175,8 +175,8 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Evolution leaderboard (table of iterations × tasks × scores)
 - [x] `kairn evolve diff <iter1> <iter2>` — show harness changes between iterations
 
-### v2.2.1 — Mutation Scope Expansion (Bugfix) ✅ SHIPPED
-> Bugs 3, 4, 5 from initial Kairn-on-Kairn test run. Mutations additive-only, MCP outside scope, proposer biased toward growth.
+### v2.2.1 ✅ SHIPPED
+> Mutations were additive-only; MCP configuration excluded from scope; proposer biased toward growth rather than optimization.
 
 - [x] Add `delete_section` and `delete_file` mutation actions to types and mutator
 - [x] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
@@ -184,77 +184,83 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
 - [x] Tests: delete mutations, MCP snapshot, balanced proposer
 
-### v2.2.2 — Proposer JSON Fix (Critical Bugfix) [IN PROGRESS]
-> Discovered during Kairn-on-Kairn test run post-v2.2.1. **#1 blocker:** Proposer returns English prose instead of JSON — no mutations are ever applied despite loop running fine.
+### v2.2.2 ✅ SHIPPED
+> **#1 blocker fixed:** Proposer was returning English prose instead of JSON. Added JSON mode to LLM call with fallback parsing.
 
-- [ ] **CRITICAL:** Add `jsonMode` to `callLLM()` with assistant prefill (Anthropic) and `response_format` (OpenAI)
-- [ ] **CRITICAL:** Robust JSON extraction in parser — handle prose-wrapped JSON (first `{` to last `}`)
-- [ ] Wire `jsonMode: true` in proposer LLM call
-- [ ] Tests: JSON extraction from prose, assistant prefill behavior
+- [x] Add `jsonMode` to `callLLM()` with assistant prefill (Anthropic) and `response_format` (OpenAI)
+- [x] Robust JSON extraction in parser — handle prose-wrapped JSON (first `{` to last `}`)
+- [x] Wire `jsonMode: true` in proposer LLM call
+- [x] Tests: JSON extraction from prose, assistant prefill behavior
 
-### v2.2.3 — Mutation Scope Expansion (Bugfix)
-> After v2.2.2 fixes proposer JSON. Now enable the loop to remove bloat and optimize MCP configuration — not just add instructions.
+### v2.2.3 — End-to-End Loop Validation [NEXT]
+> v2.2.1 shipped the mutation types and v2.2.2 fixed proposer JSON. This version proves the full loop works: mutations actually apply, scores actually move, evolved > static is demonstrable.
 
-- [ ] Add `delete_section` and `delete_file` mutation actions to types and mutator
-- [ ] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
-- [ ] Rebalance proposer prompt: consider both additions AND removals, list all 5 mutation actions, add MCP guidance
-- [ ] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
-- [ ] Tests: delete mutations, MCP snapshot, balanced proposer
-- [ ] **Integration test:** `kairn evolve run --iterations 3` applies mutations and improves score (confirms loop actually evolves)
+- [ ] `kairn evolve apply [--iter N]` — copy best harness to `.claude/` with diff preview + git commit (highest-friction UX gap)
+- [ ] **Integration test:** `kairn evolve run --iterations 3` applies mutations and score improves vs baseline
+- [ ] Variance controls: run each task N times (default: 3), report mean ± stddev per task
+- [ ] **Proof artifact:** before/after comparison showing evolved harness outperforms static on a held-out task
 
-### v2.3.0 — Advanced Scoring & Search + Quick Wins
-> After v2.2.3, improve evolution visibility, iteration speed, and scoring capabilities.
+### v2.3.0 — Eval Quality & Measurement Rigor
+> The evolution loop is only as good as its eval signal. Before adding features, make measurement trustworthy.
 
-**Quick Wins:**
-- [ ] Fix hardcoded CLI version → read from package.json dynamically
+**Eval Quality (the bottleneck):**
+- [ ] Failure taxonomy: was it the harness? the task? the model? the repo state? Log classification per task failure
+- [ ] Canonical benchmark corpus: small set of stable, version-controlled tasks alongside project-specific evals
+- [ ] Confidence intervals: report mean ± stddev across N runs per task in `kairn evolve report`
+- [ ] Custom scoring functions (user-defined scoring scripts in `.kairn-evolve/`)
+
+**Iteration Speed:**
 - [ ] Parallel task evaluation (promise-based, concurrency-limited) — 20 min → 5 min per iteration
-- [ ] `kairn evolve apply [--iter N]` — copy best harness to .claude/ with diff preview + git commit
-- [ ] Capture tool calls & MCP usage from runner output → tool_calls.json
-
-**Medium Features (harness insights):**
-- [ ] Harness utilization metrics (which tools/agents/rules were used vs available)
-- [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
 - [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads — ~85% token savings)
+- [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
 
-**Core v2.3 Features:**
-- [ ] Multi-objective scoring (correctness × efficiency × cost) with weighted aggregation
-- [ ] Search strategy selection: greedy (default), best-of-N, population-based
-- [ ] Held-out validation set (train/test split for tasks to prevent overfitting)
-- [ ] Custom scoring functions (user-defined scoring scripts in .kairn-evolve/)
+**DX Quick Wins:**
+- [ ] Fix hardcoded CLI version → read from package.json dynamically
+- [ ] Capture tool calls & MCP usage from runner output → tool_calls.json
+- [ ] Harness utilization metrics (which tools/agents/rules were used vs available)
 
-### v2.4.0 — Polish & Integration
+### v2.4.0 — Structured Harness IR
+> Raw Markdown mutation will corrupt formatting, accumulate contradictions, and break as files grow. A structured intermediate representation makes mutations composable, diffing meaningful, and format migration tractable.
+
+- [ ] Harness IR: typed data model for CLAUDE.md sections, commands, rules, agents, settings
+- [ ] Deterministic render: IR → .claude/ files (one-way, lossless)
+- [ ] Mutations operate on IR nodes, not raw text (type-safe, composable)
+- [ ] Diff engine compares IR trees, not string patches
+- [ ] Migration path: parse existing .claude/ → IR → re-render (format upgrade for free)
+
+### v2.5.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
 - [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
 - [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")
 - [ ] Template evolution (evolve a template against its canonical tasks)
 - [ ] Export evolved environment as a new Kairn template
 - [ ] CI/CD integration guide (run `kairn evolve` in GitHub Actions)
-- [ ] User-authored custom evals — write tasks from scratch (not from templates), custom scoring scripts, arbitrary verification logic
+- [ ] Multi-objective scoring (correctness × efficiency × cost) with weighted aggregation
+- [ ] Search strategy selection: greedy (default), best-of-N, population-based
 
 ---
 
-## v3.x — Hosted Compilation
+## Future Directions (Aspirational)
 
-- [ ] Free hosted compilation endpoint — no local LLM key needed
-- [ ] Web dashboard for environment management
-- [ ] Template marketplace — share and discover environments
-- [ ] Detect and adapt to existing user MCP servers
+> These are directional ideas, not committed milestones. They depend on v2.x proving its thesis (evolved > static with rigor) and on finding a monetization trigger.
 
----
+### Harness Generator Quality
+- Upgrade agent template quality (learn from OMC's agent design patterns: role scoping, `disallowedTools`, `<Why_This_Matters>`, model tiering)
+- Generate per-environment **WORKFLOWS.md** walkthrough (context-aware, regenerated after evolve)
 
-## v4.x — Integrated Payments
+### Extended Marketplace Integration
+- Plugin search: Claude Code plugin marketplaces (anthropics, omc, openai-codex) alongside MCP server directories (Smithery, mcp.run, glama.ai)
+- Agent template library: parameterized by project type, proposer can suggest additions during evolution
 
-- [ ] Zero-friction tool provisioning via Stripe MPP
-- [ ] Usage tracking and spending controls
-- [ ] BYOK (bring your own key) flow for non-MPP tools
+### Hosted Platform
+- Free hosted compilation endpoint (requires: auth, multi-tenancy, trace privacy, abuse prevention, uptime)
+- Web dashboard, template marketplace
+- Payments integration (Stripe MPP, BYOK)
 
----
-
-## v5.x — Learning System
-
-- [ ] Automated tool discovery (GitHub, npm, community)
-- [ ] Usage-based quality scoring
-- [ ] Workflow-to-environment recommendation model
+### Learning System
+- Automated tool discovery (GitHub, npm, community)
+- Usage-based quality scoring
+- Cross-project evolution data flywheel
 
 ---
 
@@ -266,3 +272,4 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 4. **Transparent.** Users can inspect every generated file.
 5. **Security by default.** Every environment includes deny rules and security guidance.
 6. **Self-improving.** Environments should get better with use, not just at generation time.
+7. **Prove it.** Evolved harnesses must demonstrably outperform static ones. Claims without measurement rigor are noise.

@@ -1,227 +1,216 @@
-# PLAN-v2.2.3 — Mutation Scope Expansion (Bugfix Release)
+# PLAN v2.2.3 — End-to-End Loop Validation
 
-**Goal:** Expand the evolution loop's mutation vocabulary and harness scope so it can remove bloat and optimize MCP configuration — not just add instructions.
-
-**Design doc:** `docs/design/v2.0-kairn-evolve.md` (Section: v2.2.1 — Mutation Scope Expansion, Bug 3/4/5 details)
-
-**Depends on:** v2.2.2 (Proposer JSON Fix) — all proposer fixes must land first
-
-**Estimated complexity:** Small (7 steps, 2 parallel groups)
+> **Thesis:** The evolution loop's components are built (v2.0–v2.2.2). This version proves the full loop works end-to-end: mutations apply, scores move, and evolved > static is demonstrable with measurement rigor.
 
 ---
 
-## Implementation Steps
+## Context
 
-### Step 1: Expand Mutation Type [parallel-safe]
+**Current state:** All evolve infrastructure exists (`loop.ts`, `proposer.ts`, `mutator.ts`, `runner.ts`, `scorers.ts`, `report.ts`, `diagnosis.ts`). JSON mode is wired up (v2.2.2). Delete mutations are typed (v2.2.1). But nobody has proven the loop actually improves a harness. The `apply` command is missing — users have to manually copy evolved harnesses.
 
-**What to build:** Add `delete_section` and `delete_file` to the `Mutation.action` union type.
+**Existing CLI commands:**
+- `kairn evolve init` → scaffold workspace + generate tasks
+- `kairn evolve baseline` → snapshot .claude/ as iteration 0
+- `kairn evolve run [--iterations N] [--task <id>]` → single task or full loop
+- `kairn evolve report [--json]` → markdown/JSON report
+- `kairn evolve diff <iter1> <iter2>` → harness diff between iterations
 
-**Files to modify:**
-- `src/evolve/types.ts`
+**Missing:** `kairn evolve apply [--iter N]` — adopt best harness into `.claude/`
 
-**Key implementation details:**
-- Change `action: 'replace' | 'add_section' | 'create_file'` → `action: 'replace' | 'add_section' | 'create_file' | 'delete_section' | 'delete_file'`
-- `delete_section`: requires `oldText` (the text to remove), `newText` should be empty string
-- `delete_file`: only requires `file` and `rationale`, `newText` can be empty string
-- No other type changes needed — `oldText` is already optional
+**Key files:**
+- `src/evolve/types.ts` — Score, EvolveResult, IterationLog, EvolveConfig
+- `src/evolve/loop.ts` — `evolve()` function (the core loop)
+- `src/evolve/runner.ts` — `runTask()`, `evaluateAll()`, isolated worktree workspaces
+- `src/evolve/scorers.ts` — `passFailScorer()`, `llmJudgeScorer()`, `rubricScorer()`
+- `src/commands/evolve.ts` — CLI entry points for all evolve subcommands
 
-**Verification command:**
-```bash
-npm run build
-npm run typecheck
+---
+
+## Steps
+
+### Step 1: `kairn evolve apply` — adopt best harness
+> The highest-friction UX gap. Users can't adopt an evolved harness without manually copying files.
+
+**New file:** `src/evolve/apply.ts`
+
+```typescript
+export interface ApplyResult {
+  iteration: number;
+  filesChanged: string[];
+  diffPreview: string;
+}
+
+export async function applyEvolution(
+  workspacePath: string,
+  projectRoot: string,
+  targetIteration?: number,  // undefined = best iteration
+): Promise<ApplyResult>
 ```
 
-**Commit message:** `feat(evolve): add delete_section and delete_file mutation actions`
+**Behavior:**
+1. Read iteration logs to find best iteration (or use `--iter N`)
+2. Generate unified diff between current `.claude/` and target iteration's harness
+3. Display diff preview to user (colored, like `evolve diff`)
+4. On confirmation: copy target harness over `.claude/`, stage + commit with message `feat: apply evolved harness from iteration N (score: X%)`
+5. If git is dirty, warn and require `--force`
 
----
-
-### Step 2: Implement Delete Handlers in Mutator [depends-on: 1]
-
-**What to build:** Handle the two new mutation actions in `applyMutations()`.
-
-**Files to modify:**
-- `src/evolve/mutator.ts`
-
-**Key implementation details:**
-- After the `create_file` branch in the if/else chain, add:
-  - `delete_section`: Read file, verify `oldText` exists in content, replace `oldText` with empty string, write back. Skip if `oldText` is missing or not found in file.
-  - `delete_file`: `await fs.rm(filePath, { force: true })`. Use `force: true` so missing files don't throw.
-- Security: path traversal check (`..`) already exists above — new actions inherit it
-- The `generateDiff` function already handles deleted files (shows all lines as `-`)
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/mutator.test.ts
+**CLI in `src/commands/evolve.ts`:**
+```
+kairn evolve apply [--iter N] [--force] [--no-commit]
 ```
 
-**Commit message:** `feat(evolve): implement delete_section and delete_file in mutator`
+**Tests in `src/evolve/__tests__/apply.test.ts`:**
+- Applies best iteration when no `--iter` flag
+- Applies specific iteration when `--iter 2`
+- Generates correct diff preview
+- Creates git commit with correct message
+- Errors when iteration doesn't exist
+- Warns on dirty git state
+
+**Acceptance:** `npm run build` passes, `npm test` passes, `kairn evolve apply --help` shows usage.
 
 ---
 
-### Step 3: Update Proposer JSON Parser for Delete Actions [depends-on: 1]
+### Step 2: Variance controls — run each task N times
+> LLM-as-judge scoring is noisy. A single run proves nothing. N runs with mean ± stddev proves something.
 
-**What to build:** Allow `parseProposerResponse()` to accept the new action types.
+**Modify:** `src/evolve/types.ts`
 
-**Files to modify:**
-- `src/evolve/proposer.ts`
+Add to `EvolveConfig`:
+```typescript
+runsPerTask: number;  // default: 1 (existing behavior), set to 3 for rigor
+```
 
-**Key implementation details:**
-- In `parseProposerResponse()`, the action validation currently does:
-  ```typescript
-  if (action !== 'replace' && action !== 'add_section' && action !== 'create_file') {
-    continue;
-  }
+Add to `Score`:
+```typescript
+variance?: {
+  runs: number;
+  scores: number[];
+  mean: number;
+  stddev: number;
+};
+```
+
+**Modify:** `src/evolve/runner.ts` → `evaluateAll()`
+
+When `runsPerTask > 1`:
+1. Run each task N times (sequentially, same harness)
+2. Collect N score values
+3. Compute mean and stddev
+4. Use mean as the canonical score for that task
+5. Store all runs in `variance` field
+
+**Modify:** `src/evolve/loop.ts`
+
+- Thread `evolveConfig.runsPerTask` through to `evaluateAll()`
+- No change to loop logic — it already uses `aggregate` which comes from `evaluateAll()`
+
+**Modify:** `src/commands/evolve.ts`
+
+- Add `--runs <n>` option to `evolve run` (default: 1)
+- Add `runs_per_task` to `config.yaml` schema
+- Display stddev in iteration table when runs > 1:
   ```
-  Add `'delete_section'` and `'delete_file'` to the valid set.
-- For `delete_section`, require `oldText` (same as `replace`)
-- For `delete_file`, `oldText` is not required
+  Iter  Score        Mutations  Status
+     0  80.0% ±4.2          -  baseline
+     1  85.3% ±2.1          3  best
+  ```
 
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/proposer.test.ts
+**New progress event:** `'task-run'` (for `Run 2/3 of task-X...`)
+
+**Tests:**
+- `evaluateAll` with `runsPerTask: 3` runs each task 3 times
+- Mean and stddev computed correctly
+- Single run (default) has no variance field
+- CLI displays stddev when present
+
+**Acceptance:** `npm run build` passes, `npm test` passes. Running `kairn evolve run --runs 3 --task some-task` shows 3 runs with mean ± stddev.
+
+---
+
+### Step 3: Integration test — loop applies mutations and score improves
+> Prove the loop works end-to-end in a controlled test environment.
+
+**New file:** `src/evolve/__tests__/integration.test.ts`
+
+**Setup:** Create a minimal test project with:
+- A `.claude/CLAUDE.md` that is intentionally weak (e.g., missing verification section, no git rules, vague instructions)
+- A `tasks.yaml` with 2-3 simple tasks that will score poorly against the weak harness
+- Mock or stub the LLM calls (proposer + scorer) with deterministic responses:
+  - Proposer returns a known mutation that adds the missing section
+  - Scorer returns higher score when the section is present
+
+**Test flow:**
+1. `snapshotBaseline()` → creates iteration 0 harness
+2. `evolve()` with `maxIterations: 3`
+3. Assert: `result.bestScore > result.baselineScore`
+4. Assert: `result.bestIteration > 0` (loop actually improved)
+5. Assert: iteration logs contain non-null proposals with mutations
+6. Assert: mutation diffs are non-empty strings
+
+**Why mock?** Real LLM calls are expensive, slow, and non-deterministic. The integration test should prove the *loop mechanics* work (evaluate → propose → mutate → re-evaluate → score increases). Real LLM validation is the proof artifact (Step 4).
+
+**Tests:**
+- Full loop: baseline → propose → mutate → re-evaluate → score improves
+- Rollback: score drops → loop reverts to best iteration
+- Proposer error: loop skips mutation, copies harness forward
+- Perfect score: loop exits early
+
+**Acceptance:** `npm test` passes with the integration test suite. No flaky tests (deterministic mocks).
+
+---
+
+### Step 4: Proof artifact — evolved > static on a real project
+> Not a code step. A live demonstration that the evolution loop improves a harness.
+
+**Run against Kairn itself:**
+1. `cd ~/Projects/kairn-v2`
+2. `kairn evolve init` (or reuse existing `.kairn-evolve/`)
+3. `kairn evolve baseline`
+4. `kairn evolve run --iterations 5 --runs 3`
+5. `kairn evolve report > PROOF-v2.2.3.md`
+6. `kairn evolve apply` (adopt best harness)
+
+**Expected proof artifact:** `PROOF-v2.2.3.md` showing:
+- Baseline score (iteration 0) with stddev
+- Best score (iteration N) with stddev
+- Improvement delta with statistical significance (mean ± stddev doesn't overlap)
+- The specific mutations that helped (from report)
+
+**Commit message:** `docs: proof artifact — evolved > static by X points (v2.2.3)`
+
+**Acceptance:** `PROOF-v2.2.3.md` exists, shows improvement with variance data. If no improvement: investigate why, fix, re-run. The version doesn't ship until evolved > static is demonstrated.
+
+---
+
+## Execution Order
+
+```
+Step 1 (apply)     → Step 2 (variance) → Step 3 (integration test) → Step 4 (proof)
+   [new feature]      [measurement]         [loop correctness]          [thesis validation]
 ```
 
-**Commit message:** `feat(evolve): accept delete mutations in proposer response parser`
+Steps 1 and 2 are independent and can be built in parallel.
+Step 3 depends on Step 2 (variance fields in types).
+Step 4 depends on all three.
 
 ---
 
-### Step 4: MCP in Baseline Snapshot [parallel-safe]
+## Completion Criteria
 
-**What to build:** Copy `.mcp.json` from project root into the harness snapshot alongside `.claude/`.
+- [ ] `kairn evolve apply` works (copies best harness, shows diff, commits)
+- [ ] `--runs N` produces mean ± stddev for each task
+- [ ] Integration test suite passes with deterministic mocks
+- [ ] `PROOF-v2.2.3.md` shows evolved > static with variance data
+- [ ] `npm run build` clean, `npm test` all green
+- [ ] Version bumped to 2.2.3 in package.json (already done)
+- [ ] ROADMAP.md updated (v2.2.3 marked ✅)
+- [ ] CHANGELOG.md updated
 
-**Files to modify:**
-- `src/evolve/baseline.ts`
+---
 
-**Key implementation details:**
-- In `createBaseline()` (or wherever the iteration 0 harness is created):
-  - After copying `.claude/` to `iterations/0/harness/`, also check for `.mcp.json` at project root
-  - If it exists, copy it to `iterations/0/harness/mcp.json`
-  - If it doesn't exist, skip silently (not all projects use MCP)
-- In the harness copy function used between iterations (e.g. `copyDir`), `mcp.json` will be included automatically since it's now inside the harness directory
-- Note: file is stored as `mcp.json` (no leading dot) inside harness dir to distinguish it from the project-root `.mcp.json`
+## Ralph Loop Prompt
 
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/baseline.test.ts
 ```
-
-**Commit message:** `feat(evolve): include .mcp.json in harness baseline snapshot`
-
----
-
-### Step 5: MCP in Runner Workspace [depends-on: 4]
-
-**What to build:** When creating isolated workspaces, deploy the harness's `mcp.json` as `.mcp.json` at workspace root.
-
-**Files to modify:**
-- `src/evolve/runner.ts`
-
-**Key implementation details:**
-- In `createIsolatedWorkspace()`, after copying `.claude/` from harness into the workspace:
-  - Check if harness contains `mcp.json`
-  - If yes, copy it to `.mcp.json` at workspace root (with leading dot)
-  - This ensures Claude Code in the isolated workspace sees the evolved MCP config
-- Handle both worktree and copy paths
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/runner.test.ts
+/ralph-loop Read PLAN-v2.2.3.md. Execute steps 1-3 in order. For each step: write failing tests first (RED), implement until tests pass (GREEN), then clean up (REFACTOR). Run npm run build and npm test after each step. Commit after each step passes. Step 4 is a live run — skip it in the loop. --max-iterations 15 --completion-promise 'Steps 1-3 complete: apply command works, variance controls work, integration tests pass'
 ```
-
-**Commit message:** `feat(evolve): deploy harness mcp.json into isolated workspaces`
-
----
-
-### Step 6: Rebalance Proposer Prompt [parallel-safe]
-
-**What to build:** Update the proposer system prompt to consider removals, list all mutation actions, and mention MCP optimization.
-
-**Files to modify:**
-- `src/evolve/proposer.ts`
-
-**Key implementation details:**
-- Replace the `## Rules` section of `PROPOSER_SYSTEM_PROMPT`:
-  - Remove: `"Prefer ADDITIVE changes over replacements when possible."`
-  - Add: Balanced guidance for both additions AND removals
-  - List all 5 mutation actions: `replace`, `add_section`, `create_file`, `delete_section`, `delete_file`
-  - Add MCP guidance: "If mcp.json is in the harness, you can optimize MCP server configuration"
-  - Add lean harness principle: "Leaner harnesses perform better — fewer tokens consumed means more context for the actual task"
-- Update the `## Output Format` JSON example to show a delete_section example mutation
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/proposer.test.ts
-```
-
-**Commit message:** `feat(evolve): rebalance proposer prompt for add/remove and MCP optimization`
-
----
-
-### Step 7: Tests [depends-on: 2, 3, 5, 6]
-
-**What to build:** Add/update tests for all changes.
-
-**Files to modify:**
-- `src/evolve/__tests__/mutator.test.ts`
-- `src/evolve/__tests__/proposer.test.ts`
-- `src/evolve/__tests__/baseline.test.ts`
-
-**Key test scenarios:**
-
-**Mutator tests:**
-- `delete_section` removes matching text from file
-- `delete_section` skips if oldText not found
-- `delete_file` removes the file
-- `delete_file` on non-existent file doesn't throw (force: true)
-- Diff output shows deleted file lines as `-`
-
-**Proposer tests:**
-- `parseProposerResponse` accepts `delete_section` action with oldText
-- `parseProposerResponse` accepts `delete_file` action without oldText
-- `parseProposerResponse` rejects `delete_section` without oldText (same as replace)
-- System prompt contains all 5 action types
-- System prompt does NOT contain "Prefer ADDITIVE"
-- System prompt contains MCP guidance
-
-**Baseline tests:**
-- Baseline snapshot includes `mcp.json` when `.mcp.json` exists in project root
-- Baseline snapshot works without `.mcp.json` (no error)
-
-**Verification command:**
-```bash
-npm test
-npm run build
-```
-
-**Commit message:** `test(evolve): add tests for delete mutations, MCP scope, and balanced proposer`
-
----
-
-## Parallel Groups
-
-**Group A [parallel, no dependencies]:** Steps 1, 4, 6
-- Types expansion, MCP baseline, proposer prompt — all independent files
-
-**Group B [after Group A]:** Steps 2, 3, 5, 7
-- Mutator delete handlers, parser update, runner MCP, and tests — depend on types and baseline
-
----
-
-## Success Criteria (v2.2.3 Complete)
-
-- [ ] All 7 steps committed to feature branch
-- [ ] `npm run build` succeeds
-- [ ] `npm test` passes (all new + existing tests green)
-- [ ] `delete_section` mutation removes text from harness files
-- [ ] `delete_file` mutation removes files from harness
-- [ ] `.mcp.json` is captured in baseline and deployed to workspaces
-- [ ] Proposer prompt lists all 5 mutation actions
-- [ ] Proposer prompt no longer says "Prefer ADDITIVE"
-- [ ] `parseProposerResponse` accepts delete_section and delete_file
-- [ ] Code follows v2.0-v2.2 patterns (no new dependencies)
-- [ ] Real test run: `kairn evolve run --iterations 3` applies mutations and improves score

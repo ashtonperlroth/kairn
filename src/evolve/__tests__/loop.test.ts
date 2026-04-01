@@ -5,10 +5,6 @@ import { evolve } from '../loop.js';
 import type { KairnConfig } from '../../types.js';
 import type { Task, EvolveConfig, IterationLog, LoopProgressEvent, Score, Proposal } from '../types.js';
 
-// ---------------------------------------------------------------------------
-// Mocks — we mock all I/O-bound dependencies so the loop is tested in isolation
-// ---------------------------------------------------------------------------
-
 vi.mock('../runner.js', () => ({
   evaluateAll: vi.fn(),
 }));
@@ -29,16 +25,11 @@ vi.mock('../baseline.js', () => ({
   copyDir: vi.fn(),
 }));
 
-// Import mocked modules so we can set return values per-test
 import { evaluateAll } from '../runner.js';
 import { propose } from '../proposer.js';
 import { applyMutations } from '../mutator.js';
 import { writeIterationLog } from '../trace.js';
 import { copyDir } from '../baseline.js';
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
 
 function makeKairnConfig(overrides: Partial<KairnConfig> = {}): KairnConfig {
   return {
@@ -58,6 +49,7 @@ function makeEvolveConfig(overrides: Partial<EvolveConfig> = {}): EvolveConfig {
     scorer: 'pass-fail',
     maxIterations: 3,
     parallelTasks: 1,
+    runsPerTask: 1,
     ...overrides,
   };
 }
@@ -90,16 +82,11 @@ function makeProposal(overrides: Partial<Proposal> = {}): Proposal {
   };
 }
 
-// Type-safe mock aliases
 const mockEvaluateAll = vi.mocked(evaluateAll);
 const mockPropose = vi.mocked(propose);
 const mockApplyMutations = vi.mocked(applyMutations);
 const mockWriteIterationLog = vi.mocked(writeIterationLog);
 const mockCopyDir = vi.mocked(copyDir);
-
-// ---------------------------------------------------------------------------
-// Workspace helpers — we need real directories for fs.access checks
-// ---------------------------------------------------------------------------
 
 let tempDir: string;
 
@@ -132,10 +119,6 @@ async function createWorkspace(iterations: number[]): Promise<string> {
   }
   return workspace;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('evolve', () => {
   it('returns an EvolveResult with correct shape', async () => {
@@ -203,6 +186,7 @@ describe('evolve', () => {
       0,
       kairnConfig,
       undefined,
+      1,
     );
   });
 
