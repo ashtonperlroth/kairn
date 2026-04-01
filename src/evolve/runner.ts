@@ -7,69 +7,161 @@ import { copyDir } from './baseline.js';
 import { writeTrace, writeScore } from './trace.js';
 import { scoreTask } from './scorers.js';
 import type { KairnConfig } from '../types.js';
-import type { Task, TaskResult, Trace, Score } from './types.js';
+import type { Task, TaskResult, Trace, Score, LoopProgressEvent } from './types.js';
 
 const execAsync = promisify(exec);
+
+/** Directories to skip when copying the project directory as fallback. */
+const COPY_SKIP_DIRS = new Set(['.git', 'node_modules', '.kairn-evolve', '.claude']);
+
+/**
+ * Create an isolated workspace with project files and a swapped harness.
+ * Tries git worktree first for speed and proper isolation.
+ * Falls back to copying the project directory if not in a git repo.
+ */
+async function createIsolatedWorkspace(
+  projectRoot: string,
+  harnessPath: string,
+): Promise<{ workDir: string; isWorktree: boolean }> {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  // Try git worktree first
+  try {
+    await execAsync('git rev-parse --is-inside-work-tree', {
+      cwd: projectRoot,
+      timeout: 5000,
+    });
+    const tmpDir = path.join(os.tmpdir(), `kairn-evolve-wt-${suffix}`);
+    await execAsync(`git worktree add --detach "${tmpDir}" HEAD`, {
+      cwd: projectRoot,
+      timeout: 30_000,
+    });
+    // Replace .claude with iteration harness
+    await fs.rm(path.join(tmpDir, '.claude'), { recursive: true, force: true });
+    await copyDir(harnessPath, path.join(tmpDir, '.claude'));
+    return { workDir: tmpDir, isWorktree: true };
+  } catch {
+    // Not a git repo or worktree creation failed — fall back to copy
+  }
+
+  // Fallback: copy project directory (skip large/irrelevant dirs)
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `kairn-evolve-cp-`));
+  await copyProjectDir(projectRoot, tmpDir);
+  await fs.rm(path.join(tmpDir, '.claude'), { recursive: true, force: true });
+  await copyDir(harnessPath, path.join(tmpDir, '.claude'));
+  return { workDir: tmpDir, isWorktree: false };
+}
+
+/**
+ * Copy project directory to dest, skipping .git, node_modules, .kairn-evolve, .claude.
+ */
+async function copyProjectDir(src: string, dest: string): Promise<void> {
+  await fs.mkdir(dest, { recursive: true });
+  let entries;
+  try {
+    entries = await fs.readdir(src, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (COPY_SKIP_DIRS.has(entry.name)) continue;
+
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+
+    if (entry.isDirectory()) {
+      await copyDir(srcPath, destPath);
+    } else {
+      await fs.copyFile(srcPath, destPath);
+    }
+  }
+}
+
+/**
+ * Clean up an isolated workspace.
+ */
+async function cleanupIsolatedWorkspace(
+  workDir: string,
+  isWorktree: boolean,
+  projectRoot: string,
+): Promise<void> {
+  if (isWorktree) {
+    try {
+      await execAsync(`git worktree remove "${workDir}" --force`, {
+        cwd: projectRoot,
+        timeout: 10_000,
+      });
+    } catch {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+      await execAsync('git worktree prune', {
+        cwd: projectRoot,
+        timeout: 5000,
+      }).catch(() => {});
+    }
+  } else {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 /**
  * Run a single task against a harness in an isolated workspace.
  *
- * 1. Creates temp directory
- * 2. Copies harness (.claude/) into it
+ * 1. Creates isolated workspace (git worktree or project copy)
+ * 2. Swaps .claude/ with the iteration's harness
  * 3. Runs task.setup commands
  * 4. Spawns `claude` CLI with --print flag
  * 5. Captures stdout, stderr, files changed
  * 6. Writes all trace files
- * 7. Cleans up temp directory
+ * 7. Cleans up workspace
+ *
+ * @param projectRoot - Root directory of the project (contains package.json, src/, etc.)
  */
 export async function runTask(
   task: Task,
   harnessPath: string,
   traceDir: string,
   iteration: number,
+  projectRoot?: string,
 ): Promise<TaskResult> {
   await fs.mkdir(traceDir, { recursive: true });
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
 
-  // 1. Create isolated workspace
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kairn-evolve-'));
+  const root = projectRoot ?? process.cwd();
+  const { workDir, isWorktree } = await createIsolatedWorkspace(root, harnessPath);
 
   try {
-    // 2. Copy harness into workspace
-    await copyDir(harnessPath, path.join(tmpDir, '.claude'));
-
-    // 3. Run setup commands if any
+    // Run setup commands if any
     // Trust boundary: setup commands come from tasks.yaml which is user-reviewed
     // before execution. The user is the trust anchor for these commands.
     let setupStderr = '';
     if (task.setup.trim()) {
       try {
-        await execAsync(task.setup, { cwd: tmpDir, timeout: 60_000 });
+        await execAsync(task.setup, { cwd: workDir, timeout: 60_000 });
       } catch (err) {
-        // Setup failure -- record it but continue to capture the trace
         setupStderr =
           err instanceof Error ? err.message : String(err);
       }
     }
 
-    // 4. Snapshot file list before execution for diffing
-    const filesBefore = await snapshotFileList(tmpDir);
+    // Snapshot file list before execution for diffing
+    const filesBefore = await snapshotFileList(workDir);
 
-    // 5. Spawn claude CLI
-    const spawnResult = await spawnClaude(task.description, tmpDir, task.timeout);
+    // Spawn claude CLI
+    const spawnResult = await spawnClaude(task.description, workDir, task.timeout);
 
-    // 6. Diff files to detect changes
-    const filesAfter = await snapshotFileList(tmpDir);
+    // Diff files to detect changes
+    const filesAfter = await snapshotFileList(workDir);
     const filesChanged = diffFileLists(filesBefore, filesAfter);
 
-    // 7. Parse tool calls from JSON output (if available)
+    // Parse tool calls from JSON output (if available)
     const toolCalls = parseToolCalls(spawnResult.stdout);
 
     const completedAt = new Date().toISOString();
     const durationMs = Date.now() - startMs;
 
-    // 8. Build trace
+    // Build trace
     const combinedStderr = setupStderr
       ? `[setup] ${setupStderr}\n${spawnResult.stderr}`
       : spawnResult.stderr;
@@ -85,18 +177,17 @@ export async function runTask(
       timing: { startedAt, completedAt, durationMs },
     };
 
-    // 9. Write trace files
+    // Write trace files
     await writeTrace(traceDir, trace);
 
-    // 10. Return result (scoring is done by the caller / CLI command)
+    // Return result (scoring is done by the caller / CLI command)
     return {
       taskId: task.id,
       score: trace.score,
       traceDir,
     };
   } finally {
-    // 11. Clean up temp directory
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await cleanupIsolatedWorkspace(workDir, isWorktree, root);
   }
 }
 
@@ -262,8 +353,10 @@ export async function evaluateAll(
   workspacePath: string,
   iteration: number,
   config: KairnConfig | null,
+  onProgress?: (event: LoopProgressEvent) => void,
 ): Promise<{ results: Record<string, Score>; aggregate: number }> {
   const results: Record<string, Score> = {};
+  const projectRoot = path.resolve(workspacePath, '..');
 
   for (const task of tasks) {
     const traceDir = path.join(
@@ -272,7 +365,10 @@ export async function evaluateAll(
       iteration.toString(),
       task.id,
     );
-    const taskResult = await runTask(task, harnessPath, traceDir, iteration);
+
+    onProgress?.({ type: 'task-start', iteration, taskId: task.id });
+
+    const taskResult = await runTask(task, harnessPath, traceDir, iteration, projectRoot);
 
     let score = taskResult.score;
     if (config) {
@@ -287,6 +383,13 @@ export async function evaluateAll(
     }
 
     results[task.id] = score;
+
+    onProgress?.({
+      type: 'task-scored',
+      iteration,
+      taskId: task.id,
+      score: score.score ?? (score.pass ? 100 : 0),
+    });
   }
 
   // Aggregate: average of all scores (pass-fail counted as 0 or 100)
