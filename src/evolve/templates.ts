@@ -64,6 +64,12 @@ export const EVAL_TEMPLATES: Record<EvalTemplate, TemplateMetadata> = {
     description: 'Does the agent follow all project rules without violations?',
     bestFor: ['feature-development', 'backend', 'maintenance', 'architecture'],
   },
+  'intent-routing': {
+    id: 'intent-routing',
+    name: 'Intent Routing',
+    description: 'Test that natural language prompts route to the correct workflow command via intent hooks',
+    bestFor: ['feature-development', 'full-stack', 'api-building'],
+  },
 };
 
 /**
@@ -75,7 +81,7 @@ export const EVAL_TEMPLATES: Record<EvalTemplate, TemplateMetadata> = {
  */
 export function selectTemplatesForWorkflow(workflowType: string): EvalTemplate[] {
   const mapping: Record<string, EvalTemplate[]> = {
-    'feature-development': ['add-feature', 'test-writing', 'convention-adherence', 'workflow-compliance'],
+    'feature-development': ['add-feature', 'test-writing', 'convention-adherence', 'workflow-compliance', 'intent-routing'],
     'api-building': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'],
     'full-stack': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'],
     'maintenance': ['fix-bug', 'refactor', 'test-writing', 'rule-compliance'],
