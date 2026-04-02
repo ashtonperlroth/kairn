@@ -126,13 +126,13 @@ function resolveSettings(
   }
 
   // Add persist-router hook for L3+ code projects
+  // (persistence_routing is set by applyAutonomyLevel for all levels)
   if (isCodeProject(spec) && (spec.autonomy_level ?? 1) >= 3) {
     const hooks = (base.hooks ?? {}) as Record<string, unknown[]>;
     const userPromptSubmit = (hooks.UserPromptSubmit ?? []) as unknown[];
     userPromptSubmit.push(PERSIST_ROUTER_HOOK);
     hooks.UserPromptSubmit = userPromptSubmit;
     base.hooks = hooks;
-    base.persistence_routing = (spec.autonomy_level ?? 1) >= 3 ? 'auto' : 'manual';
   }
 
   // Add intent routing hooks if patterns exist

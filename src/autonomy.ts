@@ -382,6 +382,11 @@ export function applyAutonomyLevel(spec: EnvironmentSpec): void {
   const docs = spec.harness.docs ?? {};
   const settings = (spec.harness.settings ?? {}) as Record<string, unknown>;
 
+  // All levels: persistence_routing setting
+  if (!("persistence_routing" in settings)) {
+    settings.persistence_routing = level >= 3 ? "auto" : "manual";
+  }
+
   // Level 1+: Tour, QUICKSTART, welcome hook
   if (level >= 1) {
     if (!("tour" in commands)) {

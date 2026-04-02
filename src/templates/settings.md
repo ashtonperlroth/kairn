@@ -148,6 +148,81 @@ Place in `.claude/settings.json` (project-scoped, committed to git).
 }
 ```
 
+## Full with Persistence Routing (Multi-Step Task Detection)
+```json
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "persistence_routing": "auto",
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(git *)",
+      "Bash(node *)",
+      "Read",
+      "Write",
+      "Edit"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(curl * | sh)",
+      "Bash(sudo *)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "command",
+          "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \"$CMD\" | grep -qiE 'rm\\s+-rf\\s+/|DROP\\s+TABLE|curl.*\\|\\s*sh' && echo 'Blocked' >&2 && exit 2 || true"
+        }]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{
+          "type": "command",
+          "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty') && echo \"$FILE\" | grep -qE '(\\.env$|\\.env\\.|secrets/)' && echo 'Protected file' >&2 && exit 2 || true"
+        }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{
+          "type": "command",
+          "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty') && [ -n \"$FILE\" ] && npx prettier --write \"$FILE\" 2>/dev/null || true"
+        }]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [{
+          "type": "prompt",
+          "prompt": "Context compacted. Re-read CLAUDE.md and docs/TODO.md."
+        }]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/persist-router.mjs\"",
+          "timeout": 5
+        }]
+      }
+    ]
+  }
+}
+```
+
+Set `"persistence_routing": "auto"` for autonomy level 3-4 (routes complex multi-step tasks through `/project:persist` automatically) or `"persistence_routing": "manual"` for level 1-2 (only routes when user explicitly requests persistence). Set to `"off"` to disable entirely.
+
 ## Notes
 - Always include the `$schema` for IDE autocomplete
 - `deny` arrays merge across scopes — project deny + user deny both apply
