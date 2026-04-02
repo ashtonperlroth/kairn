@@ -304,6 +304,15 @@ Full design doc: [`docs/design/v2.5-intent-routing.md`](docs/design/v2.5-intent-
 - [x] Audit trail: `.claude/hooks/intent-promotions.jsonl`
 - [x] Data flywheel: Run 1 (40% regex) → Run 10 (90% regex) — harness learns user vocabulary
 
+### v2.5.2 ✅ SHIPPED — Evolve Permissions Fix & Expanded Eval Menu
+> The evolve loop's signal is corrupted by permission prompts blocking agents in `--print` mode, and the eval menu is too small (5 tasks) for diverse proposer signal. Fix both.
+
+- [x] `--dangerously-skip-permissions` in `spawnClaude()` — eval worktrees are disposable, permission system is a confound
+- [x] Expanded eval menu: 5 → 12 tasks (7 new medium-weight harness-sensitivity probes)
+- [x] Mini-batch sampling enabled: `eval_sample_size: 5` — each middle iteration samples 5 of 12 tasks
+- [x] New eval dimensions: fs.promises convention, chalk color mapping, error boundary pattern, security path validation, conventional commit format, @inquirer/prompts check, env\_ ID prefix
+- [x] Clean baseline reset (remove permission-workaround mutations from prior iterations)
+
 ### v2.6.0 — Structured Harness IR
 > Raw Markdown mutation will corrupt formatting, accumulate contradictions, and break as files grow. A structured intermediate representation makes mutations composable, diffing meaningful, and format migration tractable.
 
