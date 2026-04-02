@@ -361,15 +361,15 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [x] **Default proposer model → Sonnet** — comparable quality at ~5x lower cost than Opus
 - [x] **Targeted re-evaluation** — after mutation, re-run only tasks whose scores are likely affected (saves ~40% eval cost)
 
-### v2.9.0 — Harness Quality: Anthropic Patterns ([plan](PLAN-v2.9.0.md))
+### v2.9.0 ✅ SHIPPED — Harness Quality: Anthropic Patterns ([plan](PLAN-v2.9.0.md))
 > Comparative analysis against [Anthropic's official harness design guidance](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) (151 skills, 102 security rules), and [Oh-My-ClaudeCode](https://github.com/yeachan-heo/oh-my-claudecode) (smart model routing) revealed 6 gaps in generated harness quality.
 
-- [ ] **Sprint contracts** — @architect outputs acceptance criteria, @verifier validates per-criterion before coding
-- [ ] **Smart model routing** — agents include tiered routing (Haiku/Sonnet/Opus) based on task complexity, with `modelRouting` IR field
-- [ ] **Context reset protocol** — alternative to PostCompact for long sessions (full reset + handoff artifact)
-- [ ] **Memory persistence hooks** — SessionStart/End save/load `.claude/memory.json` across sessions
-- [ ] **Expanded security rules** — PreToolUse patterns from 5 to 20+ (credential leaks, injection, destructive ops, network)
-- [ ] **Pruning policy** — principle: harness complexity should decrease as models improve
+- [x] **Sprint contracts** — @architect outputs acceptance criteria, @verifier validates per-criterion before coding
+- [x] **Smart model routing** — agents include tiered routing (Haiku/Sonnet/Opus) based on task complexity, with `modelRouting` IR field
+- [x] **Context reset protocol** — alternative to PostCompact for long sessions (full reset + handoff artifact)
+- [x] **Memory persistence hooks** — SessionStart/End save/load `.claude/memory.json` across sessions
+- [x] **Expanded security rules** — PreToolUse patterns from 5 to 20+ (credential leaks, injection, destructive ops, network)
+- [x] **Pruning policy** — principle: harness complexity should decrease as models improve
 
 ### v2.10.0 — Polish & Integration (moved from v2.8.0)
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)

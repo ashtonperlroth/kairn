@@ -7,6 +7,23 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.9.0] — 2026-04-02
+
+### Added
+- **Sprint contract pattern** — `@architect` outputs now require numbered acceptance criteria in `docs/SPRINT.md`; `/project:develop` Phase 4 validates each criterion individually as a contract scorecard; `/project:spec` requires 3-8 testable conditions; `Sprint Contract` section added to CLAUDE.md template
+- **Smart model routing** — agents include tiered routing guidance (Haiku/Sonnet/Opus) based on task complexity; `modelRouting` field added to `AgentNode` IR with parser and renderer support; `Model Selection` section added to HARNESS_PROMPT
+- **Context reset protocol** — full PostCompact alternative that pipes CLAUDE.md + SPRINT.md + DECISIONS.md into `additionalContext` for long sessions (>2 hours or >3 compactions)
+- **Memory persistence hooks** — `SessionStart`/`SessionEnd` hooks save/load `.claude/memory.json` so accumulated project context survives session boundaries
+- **Expanded security rules** — PreToolUse patterns expanded from 5 to 20+ across 4 categories: credential leaks (API keys, AWS secrets, private keys), injection (SQL, path traversal), destructive ops (force push, recursive chmod, npm publish), network (reverse shell, data exfiltration)
+- **Pruning policy** — principle #8 in ROADMAP: "Prune what's no longer load-bearing. Harness complexity should decrease over time, not only grow."
+
+### Changed
+- HARNESS_PROMPT security hook consolidated into a single comprehensive pattern covering all 20+ rules
+- Hook templates restructured with categorized security subsections and expanded selection guide
+- Settings templates include `SessionStart`/`SessionEnd` hook examples for memory persistence
+
+---
+
 ## [2.8.0] — 2026-04-02
 
 ### Added
