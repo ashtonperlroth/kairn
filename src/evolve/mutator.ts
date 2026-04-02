@@ -195,6 +195,15 @@ async function renderAffectedFiles(
   if (touchedCategories.has('agents')) {
     await deleteOrphanedFiles(targetDir, 'agents', fileMap);
   }
+
+  // Handle singleton file deletions: when a category is touched but
+  // the rendered map has no entry for its file, delete the stale file.
+  if (touchedCategories.has('mcp') && !fileMap.has('.mcp.json')) {
+    await fs.unlink(path.join(targetDir, '.mcp.json')).catch(() => {});
+  }
+  if (touchedCategories.has('settings') && !fileMap.has('settings.json')) {
+    await fs.unlink(path.join(targetDir, 'settings.json')).catch(() => {});
+  }
 }
 
 /**

@@ -612,3 +612,373 @@ describe('classifyFailure', () => {
     expect(result.failureCategory).toBe('unknown');
   });
 });
+
+// ──────────────────────────────────────────────
+// scoreCriterionDeterministic
+// ──────────────────────────────────────────────
+describe('scoreCriterionDeterministic', () => {
+  let scoreCriterionDeterministic: (
+    criterionText: string,
+    stdout: string,
+    stderr: string,
+  ) => { score: number; reasoning: string } | null;
+
+  beforeEach(async () => {
+    const mod = await import('../scorers.js');
+    scoreCriterionDeterministic = mod.scoreCriterionDeterministic;
+  });
+
+  // ── Pattern 1: "Ran {command}" ──
+
+  it('detects "Ran npm run build" when build evidence in stdout', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran npm run build (or equivalent tsup build)',
+      'ESM Build success in 18ms\nESM dist/cli.js 282.55 KB',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+    expect(result!.reasoning).toContain('Deterministic');
+  });
+
+  it('detects "Ran npm run build" when tsup appears in stdout', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran npm run build',
+      'tsup v8.0.0\nCLI  dist/cli.js 100.00 KB',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Ran npm run build" fails when no build evidence', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran npm run build (or equivalent tsup build)',
+      'The agent discussed the task but did not run build',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(0.0);
+    expect(result!.reasoning).toContain('Deterministic');
+  });
+
+  it('detects "Ran npm test" when vitest evidence in stdout', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran npm test (or vitest)',
+      '42 passed (42)\nTest Files  42 passed',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Ran npm test" when "Tests passed" appears', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran npm test',
+      'Tests  3 passed (3)\n',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Ran npm test" fails when no test evidence', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran npm test',
+      'some random output with no test evidence',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(0.0);
+  });
+
+  it('detects "Ran tsc" when typecheck evidence in stderr', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran tsc --noEmit or typecheck',
+      '',
+      'tsc --noEmit completed successfully',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Ran npm run lint" when eslint evidence in stdout', () => {
+    const result = scoreCriterionDeterministic(
+      'Ran npm run lint',
+      'eslint src/ --ext .ts\n0 problems',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  // ── Pattern 2: "Zero/No {pattern}" ──
+
+  it('detects "Zero .then()/.catch()" when absent', () => {
+    const result = scoreCriterionDeterministic(
+      'Zero .then()/.catch() chains — async/await only',
+      'async function loadData() {\n  const data = await fs.readFile(path);\n}',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Zero .then()/.catch()" when .then() is present', () => {
+    const result = scoreCriterionDeterministic(
+      'Zero .then()/.catch() chains — async/await only',
+      'fetch(url).then(res => res.json()).catch(err => console.log(err))',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(0.0);
+  });
+
+  it('detects "Zero .then()/.catch()" when .catch() is present', () => {
+    const result = scoreCriterionDeterministic(
+      'Zero .then()/.catch() chains — async/await only',
+      'promise.catch(err => handleError(err))',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(0.0);
+  });
+
+  it('detects "No readFileSync" when absent', () => {
+    const result = scoreCriterionDeterministic(
+      'No readFileSync or writeFileSync calls',
+      'await fs.readFile(path, "utf-8")',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "No readFileSync" when present', () => {
+    const result = scoreCriterionDeterministic(
+      'No readFileSync or writeFileSync calls',
+      'const data = fs.readFileSync(path)',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(0.0);
+  });
+
+  // ── Pattern 3: "Uses {pattern}" ──
+
+  it('detects "Uses chalk.green" when present in stdout', () => {
+    const result = scoreCriterionDeterministic(
+      'Uses chalk.green (or chalk.greenBright) for success message',
+      'console.log(chalk.green("Success!"))',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Uses chalk.green" fails when absent', () => {
+    const result = scoreCriterionDeterministic(
+      'Uses chalk.green for success',
+      'console.log("Success!")',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(0.0);
+  });
+
+  it('detects "Uses fs.promises" when present', () => {
+    const result = scoreCriterionDeterministic(
+      'Uses fs.promises for all file I/O',
+      'import fs from "fs/promises";\nawait fs.readFile(path)',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Use async/await" when present', () => {
+    const result = scoreCriterionDeterministic(
+      'Use async/await for all asynchronous operations',
+      'async function run() { await doStuff(); }',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Uses @inquirer/prompts" when present', () => {
+    const result = scoreCriterionDeterministic(
+      'Uses @inquirer/prompts for user input',
+      'import { input } from "@inquirer/prompts";',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  // ── Pattern 4: "Calls {function}" ──
+
+  it('detects "Calls process.exit(1)" when present', () => {
+    const result = scoreCriterionDeterministic(
+      'Calls process.exit(1) on failure',
+      '  process.exit(1);\n}',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  it('detects "Calls process.exit(1)" fails when absent', () => {
+    const result = scoreCriterionDeterministic(
+      'Calls process.exit(1) on failure',
+      'throw new Error("failed")',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(0.0);
+  });
+
+  it('detects "Call process.exit" (singular) when present', () => {
+    const result = scoreCriterionDeterministic(
+      'Call process.exit on error paths',
+      'process.exit(1)',
+      '',
+    );
+    expect(result).not.toBeNull();
+    expect(result!.score).toBe(1.0);
+  });
+
+  // ── Fallback: returns null ──
+
+  it('returns null for subjective criteria', () => {
+    const result = scoreCriterionDeterministic(
+      'Fix is correct — list command sorts by creation date, newest first',
+      'some output',
+      '',
+    );
+    expect(result).toBeNull();
+  });
+
+  it('returns null for complex judgment criteria', () => {
+    const result = scoreCriterionDeterministic(
+      'Errors caught at command boundary, not scattered try/catch blocks',
+      'some output',
+      '',
+    );
+    expect(result).toBeNull();
+  });
+
+  it('returns null for criteria that do not match any pattern', () => {
+    const result = scoreCriterionDeterministic(
+      'Code is well-structured and readable',
+      'some output',
+      '',
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────
+// rubricScorer hybrid (deterministic + LLM)
+// ──────────────────────────────────────────────
+describe('rubricScorer hybrid scoring', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = path.join(
+      '/tmp',
+      `kairn-scorer-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await fs.mkdir(tempDir, { recursive: true });
+    vi.resetAllMocks();
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('uses deterministic scoring for simple criteria, skipping LLM calls', async () => {
+    const { callLLM } = await import('../../llm.js');
+    const mockCallLLM = callLLM as ReturnType<typeof vi.fn>;
+    // Only the subjective criterion should trigger an LLM call
+    mockCallLLM.mockResolvedValueOnce(
+      JSON.stringify({ score: 0.8, reasoning: 'good structure' }),
+    );
+
+    const { rubricScorer } = await import('../scorers.js');
+    const task = makeTask({
+      scoring: 'rubric',
+      rubric: [
+        { criterion: 'Ran npm run build', weight: 0.3 },
+        { criterion: 'Code is well-structured and readable', weight: 0.7 },
+      ],
+    });
+    const config = makeConfig();
+    const result = await rubricScorer(
+      task,
+      tempDir,
+      'tsup v8.0.0\nBuild success',
+      '',
+      config,
+    );
+
+    // "Ran npm run build" scored deterministically as 1.0
+    // "Code is well-structured" scored by LLM as 0.8
+    // Weighted: 1.0*0.3 + 0.8*0.7 = 0.30 + 0.56 = 0.86 -> 86
+    expect(result.score).toBe(86);
+    expect(result.pass).toBe(true);
+    expect(result.breakdown).toHaveLength(2);
+    // Only 1 LLM call (not 2)
+    expect(mockCallLLM).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips all LLM calls when all criteria are deterministic', async () => {
+    const { callLLM } = await import('../../llm.js');
+    const mockCallLLM = callLLM as ReturnType<typeof vi.fn>;
+
+    const { rubricScorer } = await import('../scorers.js');
+    const task = makeTask({
+      scoring: 'rubric',
+      rubric: [
+        { criterion: 'Ran npm run build', weight: 0.5 },
+        { criterion: 'Ran npm test', weight: 0.5 },
+      ],
+    });
+    const config = makeConfig();
+    const result = await rubricScorer(
+      task,
+      tempDir,
+      'tsup v8.0.0\nBuild success\nTests  5 passed (5)',
+      '',
+      config,
+    );
+
+    expect(result.score).toBe(100);
+    expect(result.pass).toBe(true);
+    // Zero LLM calls
+    expect(mockCallLLM).toHaveBeenCalledTimes(0);
+  });
+
+  it('falls back to LLM for all criteria when none match deterministic patterns', async () => {
+    const { callLLM } = await import('../../llm.js');
+    const mockCallLLM = callLLM as ReturnType<typeof vi.fn>;
+    mockCallLLM
+      .mockResolvedValueOnce(JSON.stringify({ score: 0.9, reasoning: 'correct' }))
+      .mockResolvedValueOnce(JSON.stringify({ score: 0.7, reasoning: 'decent' }));
+
+    const { rubricScorer } = await import('../scorers.js');
+    const task = makeTask({
+      scoring: 'rubric',
+      rubric: [
+        { criterion: 'Fix is correct and complete', weight: 0.6 },
+        { criterion: 'Error messages are helpful', weight: 0.4 },
+      ],
+    });
+    const config = makeConfig();
+    const result = await rubricScorer(task, tempDir, 'output', '', config);
+
+    // Both scored by LLM: 0.9*0.6 + 0.7*0.4 = 0.54 + 0.28 = 0.82 -> 82
+    expect(result.score).toBe(82);
+    expect(mockCallLLM).toHaveBeenCalledTimes(2);
+  });
+});

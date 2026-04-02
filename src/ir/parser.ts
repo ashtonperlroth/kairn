@@ -568,8 +568,25 @@ async function parseAgents(harnessPath: string): Promise<AgentNode[]> {
       node.disallowedTools = disallowedTools as string[];
     }
 
+    // Parse modelRouting if present
+    const modelRouting = frontmatter["modelRouting"];
+    if (typeof modelRouting === "object" && modelRouting !== null) {
+      const mr = modelRouting as Record<string, unknown>;
+      if (typeof mr["default"] === "string") {
+        node.modelRouting = {
+          default: mr["default"] as 'haiku' | 'sonnet' | 'opus',
+        };
+        if (typeof mr["escalateTo"] === "string") {
+          node.modelRouting.escalateTo = mr["escalateTo"] as 'sonnet' | 'opus';
+        }
+        if (typeof mr["escalateWhen"] === "string") {
+          node.modelRouting.escalateWhen = mr["escalateWhen"];
+        }
+      }
+    }
+
     // Preserve all other frontmatter fields not already handled
-    const knownKeys = new Set(["name", "model", "disallowedTools"]);
+    const knownKeys = new Set(["name", "model", "disallowedTools", "modelRouting"]);
     const extra: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(frontmatter)) {
       if (!knownKeys.has(key)) {

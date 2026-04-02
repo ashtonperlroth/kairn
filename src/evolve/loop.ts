@@ -8,6 +8,9 @@ import { copyDir } from './baseline.js';
 import { initBeliefs, sampleThompson, updateBeliefs, loadBeliefs, saveBeliefs } from './sampling.js';
 import { measureComplexity, measureComplexityFromIR, computeComplexityCost, applyKLPenalty, computeDiffRatio } from './regularization.js';
 import { parseHarness } from '../ir/parser.js';
+import { translateMutations } from '../ir/translate.js';
+import { filterTasksByAspects, mutationsToAspects } from './targeting.js';
+import type { HarnessAspect } from './targeting.js';
 import type { HarnessIR } from '../ir/types.js';
 import type { TaskBelief } from './sampling.js';
 import type { ComplexityMetrics } from './regularization.js';
@@ -91,6 +94,9 @@ export async function evolve(
     }
   }
 
+  // Targeted re-evaluation: track which harness aspects changed last iteration
+  let lastChangedAspects: Set<HarnessAspect> | null = null;
+
   // Seeded RNG for Thompson Sampling (deterministic per-run, per-branch via rngSeed)
   let rngState = evolveConfig.rngSeed ?? 42;
   const rng = (): number => {
@@ -145,6 +151,24 @@ export async function evolve(
         } else {
           tasksToRun.push(task);
         }
+      }
+
+      // Targeted re-evaluation: skip tasks unaffected by last mutation
+      if (lastChangedAspects !== null) {
+        const targetedTasks = filterTasksByAspects(tasksToRun, lastChangedAspects);
+        const skippedByTargeting = tasksToRun.filter(t => !targetedTasks.includes(t));
+        for (const task of skippedByTargeting) {
+          const prev = prevLog.taskResults[task.id];
+          const prevVal = prev ? (prev.score ?? (prev.pass ? 100 : 0)) : 0;
+          carriedScores[task.id] = { pass: prevVal >= 50, score: prevVal };
+          onProgress?.({
+            type: 'task-skipped',
+            iteration: iter,
+            taskId: task.id,
+            message: `Skipped ${task.id} (unaffected by mutations)`,
+          });
+        }
+        tasksToRun = targetedTasks;
       }
 
       // Mini-batch sampling: Thompson or uniform
@@ -225,10 +249,12 @@ export async function evolve(
       aggregate = applyKLPenalty(rawAggregate, iterComplexityCost, evolveConfig.klLambda);
     }
 
-    // Thompson Sampling: update beliefs with results
+    // Thompson Sampling: update beliefs with EVALUATED results only
+    // Carried-forward scores are stale — treating them as fresh observations
+    // makes the sampler artificially overconfident and freezes beliefs.
     if (useThompson) {
       const scoreMap: Record<string, number> = {};
-      for (const [taskId, score] of Object.entries(results)) {
+      for (const [taskId, score] of Object.entries(evalResults)) {
         scoreMap[taskId] = score.score ?? (score.pass ? 100 : 0);
       }
       beliefs = updateBeliefs(beliefs, scoreMap);
@@ -331,6 +357,14 @@ export async function evolve(
           }
           const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
           await applyMutations(bestHarnessPath, nextIterDir, rollbackProposal.mutations);
+          // Compute changed aspects for targeted re-evaluation
+          try {
+            const rollbackIR = await parseHarness(bestHarnessPath);
+            const irMuts = translateMutations(rollbackProposal.mutations, rollbackIR);
+            lastChangedAspects = mutationsToAspects(irMuts);
+          } catch {
+            lastChangedAspects = null;
+          }
           onProgress?.({
             type: 'mutations-applied',
             iteration: iter,
@@ -447,9 +481,18 @@ export async function evolve(
         proposal.mutations,
       );
       diffPatch = mutationResult.diffPatch;
+      // Compute changed aspects for targeted re-evaluation
+      try {
+        const currentIR = await parseHarness(harnessPath);
+        const irMuts = translateMutations(proposal.mutations, currentIR);
+        lastChangedAspects = mutationsToAspects(irMuts);
+      } catch {
+        lastChangedAspects = null;
+      }
     } catch {
       // Mutation failed — copy current harness forward unchanged
       await copyDir(harnessPath, path.join(nextIterDir, 'harness'));
+      lastChangedAspects = null;
     }
 
     onProgress?.({

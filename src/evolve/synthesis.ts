@@ -179,6 +179,7 @@ export async function synthesizeBranches(
     systemPrompt,
     maxTokens: 8192,
     jsonMode: true,
+    cacheControl: true,
   });
 
   const proposal = parseProposerResponse(response);

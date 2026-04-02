@@ -353,7 +353,25 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [x] **Legacy translation layer** — bridges text-based proposer Mutations to typed IRMutations with raw_text fallback
 - [x] **Evolution loop integration** — mutator uses IR pipeline internally (parse→translate→apply→render), copy-first/render-selectively preserves untouched files, IR-aware complexity measurement for KL regularization
 
-### v2.8.0 — Polish & Integration
+### v2.8.0 ✅ SHIPPED — Evolution Quality
+> Hybrid scoring, Anthropic prompt caching, proposer model optimization, and targeted re-evaluation.
+
+- [x] **Hybrid scoring** — deterministic rubric criteria alongside LLM-as-judge (weighted blend, configurable)
+- [x] **Anthropic prompt caching** for system prompts (~85% token savings on repeated proposer/scorer calls)
+- [x] **Default proposer model → Sonnet** — comparable quality at ~5x lower cost than Opus
+- [x] **Targeted re-evaluation** — after mutation, re-run only tasks whose scores are likely affected (saves ~40% eval cost)
+
+### v2.9.0 ✅ SHIPPED — Harness Quality: Anthropic Patterns ([plan](PLAN-v2.9.0.md))
+> Comparative analysis against [Anthropic's official harness design guidance](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) (151 skills, 102 security rules), and [Oh-My-ClaudeCode](https://github.com/yeachan-heo/oh-my-claudecode) (smart model routing) revealed 6 gaps in generated harness quality.
+
+- [x] **Sprint contracts** — @architect outputs acceptance criteria, @verifier validates per-criterion before coding
+- [x] **Smart model routing** — agents include tiered routing (Haiku/Sonnet/Opus) based on task complexity, with `modelRouting` IR field
+- [x] **Context reset protocol** — alternative to PostCompact for long sessions (full reset + handoff artifact)
+- [x] **Memory persistence hooks** — SessionStart/End save/load `.claude/memory.json` across sessions
+- [x] **Expanded security rules** — PreToolUse patterns from 5 to 20+ (credential leaks, injection, destructive ops, network)
+- [x] **Pruning policy** — principle: harness complexity should decrease as models improve
+
+### v2.10.0 — Polish & Integration (moved from v2.8.0)
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
 - [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
 - [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")
@@ -422,3 +440,4 @@ When the proposer discovers that adding an external tool (Sentry, Datadog, a pai
 5. **Security by default.** Every environment includes deny rules and security guidance.
 6. **Self-improving.** Environments should get better with use, not just at generation time.
 7. **Prove it.** Evolved harnesses must demonstrably outperform static ones. Claims without measurement rigor are noise.
+8. **Prune what's no longer load-bearing.** Every harness section assumes a model limitation. When models improve, audit and remove scaffolding that the model handles natively. Harness complexity should decrease over time, not only grow.

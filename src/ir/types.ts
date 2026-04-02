@@ -54,6 +54,11 @@ export interface AgentNode {
   name: string;
   model?: string;
   disallowedTools?: string[];
+  modelRouting?: {
+    default: 'haiku' | 'sonnet' | 'opus';
+    escalateTo?: 'sonnet' | 'opus';
+    escalateWhen?: string;
+  };
   extraFrontmatter?: Record<string, unknown>;  // preserve all other YAML frontmatter fields
   content: string;
 }

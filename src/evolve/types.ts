@@ -5,6 +5,8 @@ export type EvalTemplate = 'add-feature' | 'fix-bug' | 'refactor' | 'test-writin
 export interface RubricCriterion {
   criterion: string;
   weight: number;
+  /** Shell command or stdout pattern for explicit deterministic scoring. */
+  check?: string;
 }
 
 // Task definition

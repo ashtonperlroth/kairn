@@ -216,11 +216,12 @@ export function renderAgentWithFrontmatter(agent: AgentNode): string {
   const hasModel = agent.model !== undefined;
   const hasDisallowed =
     agent.disallowedTools !== undefined && agent.disallowedTools.length > 0;
+  const hasRouting = agent.modelRouting !== undefined;
   const hasExtra =
     agent.extraFrontmatter !== undefined &&
     Object.keys(agent.extraFrontmatter).length > 0;
 
-  if (!hasModel && !hasDisallowed && !hasExtra) {
+  if (!hasModel && !hasDisallowed && !hasRouting && !hasExtra) {
     return agent.content;
   }
 
@@ -234,6 +235,18 @@ export function renderAgentWithFrontmatter(agent: AgentNode): string {
     yamlLines.push("disallowedTools:");
     for (const tool of agent.disallowedTools!) {
       yamlLines.push(`  - ${tool}`);
+    }
+  }
+
+  // Emit modelRouting as nested YAML
+  if (hasRouting) {
+    yamlLines.push("modelRouting:");
+    yamlLines.push(`  default: ${agent.modelRouting!.default}`);
+    if (agent.modelRouting!.escalateTo) {
+      yamlLines.push(`  escalateTo: ${agent.modelRouting!.escalateTo}`);
+    }
+    if (agent.modelRouting!.escalateWhen) {
+      yamlLines.push(`  escalateWhen: ${agent.modelRouting!.escalateWhen}`);
     }
   }
 

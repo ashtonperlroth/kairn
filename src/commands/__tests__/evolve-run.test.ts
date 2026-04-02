@@ -176,7 +176,7 @@ describe('loadEvolveConfigFromWorkspace', () => {
     const config = await loadEvolveConfigFromWorkspace(workspace);
 
     expect(config.model).toBe('claude-sonnet-4-6');
-    expect(config.proposerModel).toBe('claude-opus-4-6');
+    expect(config.proposerModel).toBe('claude-sonnet-4-6');
     expect(config.scorer).toBe('pass-fail');
     expect(config.maxIterations).toBe(5);
     expect(config.parallelTasks).toBe(1);
@@ -196,7 +196,7 @@ describe('loadEvolveConfigFromWorkspace', () => {
 
     expect(config.model).toBe('custom-model');
     // Defaults for missing fields
-    expect(config.proposerModel).toBe('claude-opus-4-6');
+    expect(config.proposerModel).toBe('claude-sonnet-4-6');
     expect(config.scorer).toBe('pass-fail');
     expect(config.maxIterations).toBe(5);
     expect(config.parallelTasks).toBe(1);

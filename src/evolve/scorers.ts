@@ -29,6 +29,155 @@ Return ONLY valid JSON:
   "reasoning": "Brief explanation"
 }`;
 
+// ── Deterministic criterion scoring heuristics ──
+
+/** Evidence keywords for "Ran {command}" pattern, keyed by command keyword. */
+const RAN_COMMAND_EVIDENCE: Array<{ keywords: string[]; evidence: string[] }> = [
+  { keywords: ['npm run build', 'build', 'tsup'], evidence: ['build success', 'tsup', 'built in', 'build completed'] },
+  { keywords: ['tsc', 'typecheck'], evidence: ['tsc', 'typecheck'] },
+  { keywords: ['npm run lint', 'eslint', 'lint'], evidence: ['lint', 'eslint'] },
+  { keywords: ['npm test', 'vitest', 'test'], evidence: ['vitest', 'test files', 'tests passed', 'passed (', 'tests '] },
+];
+
+/** Patterns for "Zero/No {pattern}" — items to search for absence. */
+const ABSENCE_PATTERNS: Array<{ keywords: string[]; search: string[] }> = [
+  { keywords: ['.then()', '.catch()'], search: ['.then(', '.catch('] },
+  { keywords: ['readfilesync', 'writefilesync'], search: ['readfilesync', 'writefilesync'] },
+  { keywords: ['sync'], search: ['sync'] },
+];
+
+/** Patterns for "Uses {pattern}" — keyword in criterion text mapped to output search terms. */
+const PRESENCE_PATTERNS: Array<{ keyword: string; search: string[] }> = [
+  { keyword: 'chalk.green', search: ['chalk.green'] },
+  { keyword: 'chalk.yellow', search: ['chalk.yellow'] },
+  { keyword: 'chalk.red', search: ['chalk.red'] },
+  { keyword: 'chalk.cyan', search: ['chalk.cyan'] },
+  { keyword: 'fs.promises', search: ['fs.promises', 'fs/promises'] },
+  { keyword: 'fs/promises', search: ['fs.promises', 'fs/promises'] },
+  { keyword: 'async/await', search: ['async ', 'await '] },
+  { keyword: '@inquirer/prompts', search: ['@inquirer/prompts'] },
+];
+
+/** Patterns for "Calls {function}" — items to search for presence. */
+const CALL_PATTERNS: string[] = [
+  'process.exit(1)',
+  'process.exit',
+];
+
+/**
+ * Attempt to score a rubric criterion deterministically using stdout/stderr
+ * pattern matching. Returns null if the criterion cannot be scored this way
+ * (falls back to LLM).
+ */
+export function scoreCriterionDeterministic(
+  criterionText: string,
+  stdout: string,
+  stderr: string,
+): { score: number; reasoning: string } | null {
+  const combined = `${stdout}\n${stderr}`.toLowerCase();
+  const criterionLower = criterionText.toLowerCase().trim();
+
+  // Pattern 1: "Ran {command}" — check if command was executed
+  if (/^ran\b/i.test(criterionText.trim())) {
+    for (const entry of RAN_COMMAND_EVIDENCE) {
+      // Check if the criterion text mentions any of this entry's command keywords
+      const matchesKeyword = entry.keywords.some((kw) =>
+        criterionLower.includes(kw.toLowerCase()),
+      );
+      if (matchesKeyword) {
+        const found = entry.evidence.some((ev) => combined.includes(ev.toLowerCase()));
+        if (found) {
+          const matchedEvidence = entry.evidence.find((ev) =>
+            combined.includes(ev.toLowerCase()),
+          );
+          return {
+            score: 1.0,
+            reasoning: `Deterministic: found evidence of '${matchedEvidence}' in output`,
+          };
+        }
+        return {
+          score: 0.0,
+          reasoning: `Deterministic: no evidence of '${entry.keywords[0]}' found`,
+        };
+      }
+    }
+    // "Ran" prefix matched but no known command pattern — fall through to null
+    return null;
+  }
+
+  // Pattern 2: "Zero/No {pattern}" — check absence
+  if (/^(zero|no)\b/i.test(criterionText.trim())) {
+    for (const entry of ABSENCE_PATTERNS) {
+      const matchesKeyword = entry.keywords.some((kw) =>
+        criterionLower.includes(kw.toLowerCase()),
+      );
+      if (matchesKeyword) {
+        const found = entry.search.some((pat) => combined.includes(pat.toLowerCase()));
+        if (found) {
+          const matchedPattern = entry.search.find((pat) =>
+            combined.includes(pat.toLowerCase()),
+          );
+          return {
+            score: 0.0,
+            reasoning: `Deterministic: found '${matchedPattern}' which should be absent`,
+          };
+        }
+        return {
+          score: 1.0,
+          reasoning: `Deterministic: no prohibited pattern found in output`,
+        };
+      }
+    }
+    // "Zero/No" prefix matched but no known pattern — fall through to null
+    return null;
+  }
+
+  // Pattern 3: "Uses {specific pattern}" — check presence
+  if (/^uses?\b/i.test(criterionText.trim())) {
+    for (const entry of PRESENCE_PATTERNS) {
+      if (criterionLower.includes(entry.keyword.toLowerCase())) {
+        const found = entry.search.some((s) => combined.includes(s.toLowerCase()));
+        if (found) {
+          return {
+            score: 1.0,
+            reasoning: `Deterministic: found '${entry.keyword}' in output`,
+          };
+        }
+        return {
+          score: 0.0,
+          reasoning: `Deterministic: '${entry.keyword}' not found in output`,
+        };
+      }
+    }
+    // "Uses" prefix matched but no known pattern — fall through to null
+    return null;
+  }
+
+  // Pattern 4: "Calls {function}" — check presence
+  if (/^calls?\b/i.test(criterionText.trim())) {
+    for (const pattern of CALL_PATTERNS) {
+      if (criterionLower.includes(pattern.toLowerCase())) {
+        const found = combined.includes(pattern.toLowerCase());
+        if (found) {
+          return {
+            score: 1.0,
+            reasoning: `Deterministic: found '${pattern}' in output`,
+          };
+        }
+        return {
+          score: 0.0,
+          reasoning: `Deterministic: '${pattern}' not found in output`,
+        };
+      }
+    }
+    // "Calls" prefix matched but no known pattern — fall through to null
+    return null;
+  }
+
+  // No pattern matched — fall back to LLM
+  return null;
+}
+
 /**
  * Pass/fail scorer: execute verification commands from expected_outcome,
  * falling back to stderr analysis when no commands are found.
@@ -127,6 +276,7 @@ export async function llmJudgeScorer(
     const response = await callLLM(config, userMessage, {
       systemPrompt: JUDGE_SYSTEM_PROMPT,
       maxTokens: 1024,
+      cacheControl: true,
     });
 
     // Parse JSON response, stripping markdown code fences if present
@@ -179,6 +329,24 @@ export async function rubricScorer(
   let weightedSum = 0;
 
   for (const criterion of task.rubric) {
+    // Try deterministic scoring first to avoid unnecessary LLM calls
+    const deterministicResult = scoreCriterionDeterministic(
+      criterion.criterion,
+      stdout,
+      stderr,
+    );
+
+    if (deterministicResult !== null) {
+      breakdown.push({
+        criterion: criterion.criterion,
+        score: deterministicResult.score,
+        weight: criterion.weight,
+      });
+      weightedSum += deterministicResult.score * criterion.weight;
+      continue; // Skip LLM call
+    }
+
+    // Fall through to LLM scoring
     const userMessage = [
       '## Task',
       task.description,
@@ -197,6 +365,7 @@ export async function rubricScorer(
       const response = await callLLM(config, userMessage, {
         systemPrompt: RUBRIC_SYSTEM_PROMPT,
         maxTokens: 512,
+        cacheControl: true,
       });
 
       let cleaned = response.trim();
@@ -244,12 +413,6 @@ export async function rubricScorer(
   };
 }
 
-/**
- * Select and run the appropriate scorer based on task config.
- *
- * LLM-based scorers (llm-judge, rubric) require a KairnConfig.
- * When config is not provided, they fall back to passFailScorer.
- */
 /**
  * Classify why a task failed based on trace data.
  * Only called for non-passing scores.

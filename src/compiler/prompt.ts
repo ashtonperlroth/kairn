@@ -150,6 +150,12 @@ At the start of every session, before doing ANY work:
 
 This saves 2-5 exploratory turns. Never ask "what files are here?" — look first.
 
+## Sprint Contract
+
+Before implementing, confirm acceptance criteria exist in docs/SPRINT.md.
+Each criterion must be numbered, testable, and independently verifiable.
+After implementing, verify EACH criterion individually. Do not mark done until all pass.
+
 ## Completion Standards
 
 Never mark a task "done" without running the Completion Verification checklist.
@@ -179,6 +185,7 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
 16. A "First Turn Protocol" section in CLAUDE.md (orient before working: pwd, ls, git status, check relevant runtimes, read task files)
 17. A "Completion Standards" section in CLAUDE.md (never mark done without verifying: requirements met, tests passing, no debug artifacts, reviewed from 3 perspectives)
+18. A "Sprint Contract" section in CLAUDE.md (confirm acceptance criteria exist before implementing, verify each criterion after)
 
 ## Shell-Integrated Commands
 
@@ -235,17 +242,19 @@ Only generate scoped rules when the workflow involves multiple code domains.
 
 Generate hooks in settings.json based on project type:
 
-**All code projects** — block destructive commands:
+**All code projects** — block destructive commands, credential leaks, injection, and network exfiltration:
 \`\`\`json
 {
   "hooks": {
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{
-        "type": "command",
-        "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \\"$CMD\\" | grep -qiE 'rm\\\\s+-rf\\\\s+/|DROP\\\\s+TABLE|curl.*\\\\|\\\\s*sh' && echo 'Blocked destructive command' >&2 && exit 2 || true"
-      }]
-    }]
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "command",
+          "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \\"$CMD\\" | grep -qiE 'rm\\\\s+-rf\\\\s+/|DROP\\\\s+(TABLE|DATABASE)|curl.*\\\\|\\\\s*sh|:(){ :|:& };:|git\\\\s+push.*--force(?!-with-lease)|ch(mod|own).*-R\\\\s+/|npm\\\\s+publish(?!.*--dry-run)|(api[_-]?key|secret|token|password)\\\\s*[:=]|AKIA[0-9A-Z]{16}|BEGIN.*PRIVATE\\\\s+KEY|;\\\\s*(DROP|DELETE|ALTER|TRUNCATE)\\\\s+|\\\\.\\\\./\\\\.\\\\./\\\\.\\\\.\/|nc\\\\s+.*-e|/dev/tcp/|bash\\\\s+-i|curl.*-d.*@|wget.*--post-file' && echo 'Blocked dangerous command' >&2 && exit 2 || true"
+        }]
+      }
+    ]
   }
 }
 \`\`\`
@@ -287,6 +296,17 @@ All projects should include a PostCompact hook to restore context after compacti
 
 Merge this into the settings hooks alongside the PreToolUse and PostToolUse hooks.
 
+For long-running sessions (>2 hours or >3 compactions), prefer "Full Reset" over re-inject:
+replace the prompt-type PostCompact hook with a command-type hook that pipes CLAUDE.md + SPRINT.md + DECISIONS.md content directly into additionalContext.
+
+## Memory Persistence Hooks
+
+For projects with multi-session workflows, include SessionStart/End hooks that persist context to \`.claude/memory.json\`:
+- **SessionEnd:** Save recent decisions, sprint status, and known gotchas to \`.claude/memory.json\`
+- **SessionStart:** Load \`.claude/memory.json\` and inject as additionalContext
+
+This ensures accumulated project knowledge survives session boundaries.
+
 ## For Code Projects, Additionally Include
 
 - \`/project:plan\` command (plan before coding)
@@ -296,7 +316,7 @@ Merge this into the settings hooks alongside the PreToolUse and PostToolUse hook
 - \`/project:status\` command (live git status, recent commits, SPRINT.md overview using ! prefix)
 - \`/project:fix\` command (takes $ARGUMENTS as issue number, plans fix, implements, tests, commits)
 - \`/project:sprint\` command (define acceptance criteria before coding, writes to docs/SPRINT.md)
-- \`/project:develop\` command (full development pipeline — orchestrates @architect → @planner → @implementer → @verifier → @fixer → @grill → @doc-updater through spec, plan, TDD implement, review, and doc update phases). MUST include a Phase 7 "Completion Gate" that runs a Completion Verification checklist before marking the feature done: re-read original requirements, confirm each is met with evidence, run test suite + lint/typecheck, review git diff for unexpected changes or debug artifacts, answer 3 perspective questions (test engineer, code reviewer, requesting user). If ANY check fails, loop back to fix before completing.
+- \`/project:develop\` command (full development pipeline — orchestrates @architect → @planner → @implementer → @verifier → @fixer → @grill → @doc-updater through spec, plan, TDD implement, review, and doc update phases). Phase 4 (Verify) MUST validate EACH acceptance criterion from docs/SPRINT.md individually, reporting PASS/FAIL per item as a contract scorecard. MUST include a Phase 7 "Completion Gate" that runs a Completion Verification checklist before marking the feature done: re-read original requirements, confirm each is met with evidence, run test suite + lint/typecheck, review git diff for unexpected changes or debug artifacts, answer 3 perspective questions (test engineer, code reviewer, requesting user). If ANY check fails, loop back to fix before completing.
 - A TDD skill using the 3-phase isolation pattern (RED → GREEN → REFACTOR):
   - RED: Write failing test only. Verify it FAILS.
   - GREEN: Write MINIMUM code to pass. Nothing extra.
@@ -306,13 +326,21 @@ Merge this into the settings hooks alongside the PreToolUse and PostToolUse hook
   - \`@qa-orchestrator\` (sonnet) — delegates to linter and e2e-tester, compiles QA report
   - \`@linter\` (haiku) — runs formatters, linters, security scanners
   - \`@e2e-tester\` (sonnet, only when Playwright is in tools) — browser-based QA via Playwright
-- Development pipeline agents (used by /project:develop):
-  - \`@architect\` (opus) — conducts spec interview with user, writes confirmed spec to docs/SPRINT.md
-  - \`@planner\` (opus) — reads spec and codebase, creates step-by-step implementation plan in docs/PLAN.md
-  - \`@implementer\` (sonnet) — TDD-focused implementation, writes failing tests then minimum code to pass
-  - \`@fixer\` (sonnet) — targeted bug fixing from verifier/review feedback
-  - \`@doc-updater\` (haiku) — extracts decisions and learnings from completed work, updates docs/DECISIONS.md and docs/LEARNINGS.md
-- \`/project:spec\` command (interview-based spec creation — asks 5-8 questions one at a time, writes structured spec to docs/SPRINT.md, does NOT start coding until confirmed)
+- A "Model Selection" section in generated agents:
+  \`\`\`
+  ## Model Selection (all agents)
+  - Haiku: simple file edits, linting, formatting, doc updates (<50 lines changed)
+  - Sonnet: implementation, testing, debugging, code review (50-500 lines)
+  - Opus: architecture decisions, spec writing, complex refactors (>500 lines or cross-cutting)
+  Default: Sonnet. Only escalate to Opus when the task involves multi-file architecture or ambiguous requirements.
+  \`\`\`
+- Development pipeline agents (used by /project:develop). Each agent should include a modelRouting field in its YAML frontmatter:
+  - \`@architect\` (default: opus) — conducts spec interview with user, writes confirmed spec to docs/SPRINT.md with numbered acceptance criteria. Your spec is a CONTRACT — the verifier will check every criterion. Vague criteria = guaranteed rework.
+  - \`@planner\` (default: sonnet, escalate to opus for cross-cutting changes) — reads spec and codebase, creates step-by-step implementation plan in docs/PLAN.md
+  - \`@implementer\` (default: sonnet, escalate to opus for cross-cutting changes) — TDD-focused implementation, writes failing tests then minimum code to pass
+  - \`@fixer\` (default: sonnet, use haiku for single-file fixes) — targeted bug fixing from verifier/review feedback
+  - \`@doc-updater\` (default: haiku) — extracts decisions and learnings from completed work, updates docs/DECISIONS.md and docs/LEARNINGS.md
+- \`/project:spec\` command (interview-based spec creation — asks 5-8 questions one at a time, writes structured spec to docs/SPRINT.md with ## Acceptance Criteria containing 3-8 numbered, testable conditions. Each criterion must be independently verifiable. Does NOT start coding until confirmed)
 - \`/project:prove\` command (runs tests, shows git diff vs main, rates confidence HIGH/MEDIUM/LOW with evidence)
 - \`/project:grill\` command (adversarial code review — challenges each change with "why this approach?", "what if X input?", rates BLOCKER/SHOULD-FIX/NITPICK, blocks until BLOCKERs resolved)
 - \`/project:reset\` command (reads DECISIONS.md and LEARNINGS.md, proposes clean restart, stashes current work, implements elegant solution)
@@ -466,6 +494,12 @@ At the start of every session, before doing ANY work:
 
 This saves 2-5 exploratory turns. Never ask "what files are here?" — look first.
 
+## Sprint Contract
+
+Before implementing, confirm acceptance criteria exist in docs/SPRINT.md.
+Each criterion must be numbered, testable, and independently verifiable.
+After implementing, verify EACH criterion individually. Do not mark done until all pass.
+
 ## Completion Standards
 
 Never mark a task "done" without running the Completion Verification checklist.
@@ -495,6 +529,7 @@ Do not add generic filler. Every line must be specific to the user's workflow.
 15. "Engineering Standards", "Tool Usage Policy", and "Code Philosophy" sections in CLAUDE.md
 16. A "First Turn Protocol" section in CLAUDE.md (orient before working: pwd, ls, git status, check relevant runtimes, read task files)
 17. A "Completion Standards" section in CLAUDE.md (never mark done without verifying: requirements met, tests passing, no debug artifacts, reviewed from 3 perspectives)
+18. A "Sprint Contract" section in CLAUDE.md (confirm acceptance criteria exist before implementing, verify each criterion after)
 
 ## Tool Selection Rules
 

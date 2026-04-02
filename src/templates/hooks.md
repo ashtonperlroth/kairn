@@ -11,7 +11,51 @@ not LLM-controlled. Zero token cost unless type is `prompt` or `agent`.
   "matcher": "Bash",
   "hooks": [{
     "type": "command",
-    "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \"$CMD\" | grep -qiE 'rm\\s+-rf\\s+/|DROP\\s+TABLE|curl.*\\|\\s*sh|:(){ :|:& };:' && echo 'Blocked destructive command' >&2 && exit 2 || true"
+    "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \"$CMD\" | grep -qiE 'rm\\s+-rf\\s+/|DROP\\s+TABLE|DROP\\s+DATABASE|curl.*\\|\\s*sh|:(){ :|:& };:' && echo 'Blocked destructive command' >&2 && exit 2 || true"
+  }]
+}
+```
+
+### Block Force Push and Dangerous Git (PreToolUse)
+```json
+{
+  "matcher": "Bash",
+  "hooks": [{
+    "type": "command",
+    "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \"$CMD\" | grep -qiE 'git\\s+push.*--force(?!-with-lease)|ch(mod|own).*-R\\s+/|npm\\s+publish(?!.*--dry-run)' && echo 'Blocked dangerous operation' >&2 && exit 2 || true"
+  }]
+}
+```
+
+### Block Credential Leaks in Output (PreToolUse)
+```json
+{
+  "matcher": "Bash",
+  "hooks": [{
+    "type": "command",
+    "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \"$CMD\" | grep -qiE '(api[_-]?key|secret|token|password)\\s*[:=]|AWS_SECRET_ACCESS_KEY|AKIA[0-9A-Z]{16}|BEGIN.*PRIVATE\\s+KEY' && echo 'Blocked potential credential leak' >&2 && exit 2 || true"
+  }]
+}
+```
+
+### Block Injection Patterns (PreToolUse)
+```json
+{
+  "matcher": "Bash",
+  "hooks": [{
+    "type": "command",
+    "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \"$CMD\" | grep -qiE ';\\s*(DROP|DELETE|ALTER|TRUNCATE)\\s+|\\.\\.\/\\.\\.\/\\.\\.\/' && echo 'Blocked injection pattern' >&2 && exit 2 || true"
+  }]
+}
+```
+
+### Block Network Exfiltration (PreToolUse)
+```json
+{
+  "matcher": "Bash",
+  "hooks": [{
+    "type": "command",
+    "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && echo \"$CMD\" | grep -qiE 'nc\\s+.*-e|/dev/tcp/|bash\\s+-i|curl.*-d.*@|wget.*--post-file' && echo 'Blocked network exfiltration' >&2 && exit 2 || true"
   }]
 }
 ```
@@ -22,7 +66,7 @@ not LLM-controlled. Zero token cost unless type is `prompt` or `agent`.
   "matcher": "Edit|Write",
   "hooks": [{
     "type": "command",
-    "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty') && echo \"$FILE\" | grep -qE '(\\.env$|\\.env\\.|secrets/|credentials|id_rsa)' && echo 'Cannot modify secret files' >&2 && exit 2 || true"
+    "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty') && echo \"$FILE\" | grep -qE '(\\.env$|\\.env\\.|secrets/|credentials\\.json|service-account\\.json|id_rsa|\\.pem$)' && echo 'Cannot modify secret files' >&2 && exit 2 || true"
   }]
 }
 ```
@@ -86,6 +130,54 @@ not LLM-controlled. Zero token cost unless type is `prompt` or `agent`.
 }
 ```
 
+## Context Reset Protocol (PostCompact Alternative)
+
+For sessions >2 hours or >3 compactions, prefer full context reset over
+simple re-injection. Pipes CLAUDE.md + SPRINT.md + DECISIONS.md content
+directly into additionalContext via command hook.
+
+```json
+{
+  "matcher": "",
+  "hooks": [{
+    "type": "command",
+    "command": "CONTEXT=$(cat .claude/CLAUDE.md .claude/docs/SPRINT.md .claude/docs/DECISIONS.md 2>/dev/null | head -200) && printf '{\"continue\":true,\"hookSpecificOutput\":{\"hookEventName\":\"PostCompact\",\"additionalContext\":\"CONTEXT RESET — Full project context re-injected:\\n\\n%s\"}}' \"$CONTEXT\""
+  }]
+}
+```
+
+**When to use which PostCompact strategy:**
+- **Re-inject (default):** Short sessions (<2 hours), simple projects
+- **Full Reset:** Long sessions (>2 hours), >3 compactions, complex multi-file work
+
+## Memory Persistence (SessionStart/End)
+
+Persists key context across sessions via `.claude/memory.json`. On SessionEnd,
+saves recent decisions, sprint status, and known gotchas. On SessionStart,
+loads and injects as additionalContext.
+
+### SessionEnd Hook (save context)
+```json
+{
+  "matcher": "",
+  "hooks": [{
+    "type": "command",
+    "command": "MEMORY=$(jq -n --arg decisions \"$(tail -20 .claude/docs/DECISIONS.md 2>/dev/null)\" --arg sprint \"$(head -30 .claude/docs/SPRINT.md 2>/dev/null)\" --arg gotchas \"$(grep -A1 '^-' .claude/CLAUDE.md 2>/dev/null | grep -v 'none yet' | head -10)\" '{decisions: $decisions, sprint: $sprint, gotchas: $gotchas, timestamp: now | todate}') && echo \"$MEMORY\" > .claude/memory.json"
+  }]
+}
+```
+
+### SessionStart Hook (load context)
+```json
+{
+  "matcher": "",
+  "hooks": [{
+    "type": "command",
+    "command": "if [ -f .claude/memory.json ]; then MEMORY=$(cat .claude/memory.json) && printf '{\"continue\":true,\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"RESTORED SESSION MEMORY:\\n%s\"}}' \"$MEMORY\"; else echo '{\"continue\":true}'; fi"
+  }]
+}
+```
+
 ## Selection Guide
 | Hook | Include When |
 |------|-------------|
@@ -93,7 +185,9 @@ not LLM-controlled. Zero token cost unless type is `prompt` or `agent`.
 | Protect secrets | Always |
 | Auto-format Prettier | JS/TS project with prettier |
 | Auto-format Black | Python project with black |
-| PostCompact re-inject | All projects |
+| PostCompact re-inject | Short sessions, simple projects |
+| PostCompact full reset | Long sessions (>2h), complex projects |
+| Memory persistence | All projects with multi-session workflows |
 | Desktop notification | macOS users |
 | Sound on complete | Power users |
 

@@ -423,6 +423,7 @@ export async function propose(
     systemPrompt: PROPOSER_SYSTEM_PROMPT,
     maxTokens: 8192,
     jsonMode: true,
+    cacheControl: true,
   });
 
   return parseProposerResponse(response);

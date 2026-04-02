@@ -71,11 +71,12 @@ export function classifyError(err: unknown, provider: string): string {
 export async function callLLM(
   config: KairnConfig,
   userMessage: string,
-  options: { maxTokens?: number; systemPrompt: string; jsonMode?: boolean }
+  options: { maxTokens?: number; systemPrompt: string; jsonMode?: boolean; cacheControl?: boolean }
 ): Promise<string> {
   const maxTokens = options.maxTokens ?? 8192;
   const { systemPrompt } = options;
   const jsonMode = options.jsonMode ?? false;
+  const cacheControl = options.cacheControl ?? false;
   const providerName = getProviderName(config.provider);
 
   // Resolve API key — use OAuth token from keychain if configured
@@ -101,7 +102,9 @@ export async function callLLM(
       const response = await client.messages.create({
         model: config.model,
         max_tokens: maxTokens,
-        system: systemPrompt,
+        system: cacheControl
+          ? [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }]
+          : systemPrompt,
         messages,
       });
       const textBlock = response.content.find((block) => block.type === "text");
