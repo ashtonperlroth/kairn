@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import type { HarnessIR } from '../ir/types.js';
 
 /**
  * Metrics capturing the complexity of a harness directory.
@@ -55,6 +56,102 @@ export async function measureComplexity(harnessPath: string): Promise<Complexity
     totalCommands,
     diffFromBaseline: 0,
   };
+}
+
+/**
+ * Measure the complexity of a harness from its in-memory IR representation.
+ *
+ * This is the IR-native counterpart to `measureComplexity(harnessPath)`.
+ * It avoids disk I/O by computing metrics directly from the HarnessIR tree.
+ *
+ * Counts:
+ * - `totalSections`: number of sections in the IR
+ * - `totalRules`: number of rule nodes
+ * - `totalCommands`: number of command nodes
+ * - `totalFiles`: total count of all renderable nodes (sections count as 1 for
+ *   CLAUDE.md, plus commands, rules, agents, skills, docs, hooks, settings if
+ *   non-empty, mcp if servers exist)
+ * - `totalLines`: sum of content line counts across all content-bearing nodes
+ * - `diffFromBaseline`: always 0 (set externally if needed)
+ */
+export function measureComplexityFromIR(ir: HarnessIR): ComplexityMetrics {
+  const totalSections = ir.sections.length;
+  const totalRules = ir.rules.length;
+  const totalCommands = ir.commands.length;
+
+  // Count total files: each node type contributes its count
+  let totalFiles = 0;
+
+  // CLAUDE.md counts as 1 file if there are sections or a name
+  if (ir.sections.length > 0 || ir.meta.name) {
+    totalFiles += 1;
+  }
+
+  totalFiles += ir.commands.length;
+  totalFiles += ir.rules.length;
+  totalFiles += ir.agents.length;
+  totalFiles += ir.skills.length;
+  totalFiles += ir.docs.length;
+  totalFiles += ir.hooks.length;
+
+  // settings.json counts as 1 file if it has meaningful content
+  const hasSettings =
+    ir.settings.statusLine !== undefined ||
+    (ir.settings.denyPatterns !== undefined && ir.settings.denyPatterns.length > 0) ||
+    Object.keys(ir.settings.raw).length > 0 ||
+    Object.values(ir.settings.hooks).some(
+      (entries) => entries !== undefined && entries.length > 0,
+    );
+  if (hasSettings) {
+    totalFiles += 1;
+  }
+
+  // .mcp.json counts as 1 file if servers exist
+  if (ir.mcpServers.length > 0) {
+    totalFiles += 1;
+  }
+
+  // Count total lines across all content-bearing nodes
+  let totalLines = 0;
+  for (const section of ir.sections) {
+    totalLines += countLines(section.content);
+  }
+  for (const cmd of ir.commands) {
+    totalLines += countLines(cmd.content);
+  }
+  for (const rule of ir.rules) {
+    totalLines += countLines(rule.content);
+  }
+  for (const agent of ir.agents) {
+    totalLines += countLines(agent.content);
+  }
+  for (const skill of ir.skills) {
+    totalLines += countLines(skill.content);
+  }
+  for (const doc of ir.docs) {
+    totalLines += countLines(doc.content);
+  }
+  for (const hook of ir.hooks) {
+    totalLines += countLines(hook.content);
+  }
+
+  return {
+    totalLines,
+    totalFiles,
+    totalSections,
+    totalRules,
+    totalCommands,
+    diffFromBaseline: 0,
+  };
+}
+
+/**
+ * Count the number of lines in a content string.
+ * An empty string has 0 lines. A non-empty string has at least 1.
+ */
+function countLines(content: string): number {
+  if (!content) return 0;
+  return content.split('\n').length;
 }
 
 /**

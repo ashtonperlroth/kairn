@@ -6,7 +6,9 @@ import { applyMutations } from './mutator.js';
 import { writeIterationLog } from './trace.js';
 import { copyDir } from './baseline.js';
 import { initBeliefs, sampleThompson, updateBeliefs, loadBeliefs, saveBeliefs } from './sampling.js';
-import { measureComplexity, computeComplexityCost, applyKLPenalty, computeDiffRatio } from './regularization.js';
+import { measureComplexity, measureComplexityFromIR, computeComplexityCost, applyKLPenalty, computeDiffRatio } from './regularization.js';
+import { parseHarness } from '../ir/parser.js';
+import type { HarnessIR } from '../ir/types.js';
 import type { TaskBelief } from './sampling.js';
 import type { ComplexityMetrics } from './regularization.js';
 import type { KairnConfig } from '../types.js';
@@ -73,12 +75,19 @@ export async function evolve(
   // KL Regularization: measure baseline complexity
   const useKL = evolveConfig.klLambda > 0;
   let baselineComplexity: ComplexityMetrics | null = null;
+  let baselineIR: HarnessIR | null = null;
   if (useKL) {
     const baselineHarness = path.join(workspacePath, 'iterations', '0', 'harness');
     try {
-      baselineComplexity = await measureComplexity(baselineHarness);
+      baselineIR = await parseHarness(baselineHarness);
+      baselineComplexity = measureComplexityFromIR(baselineIR);
     } catch {
-      // Baseline not available yet — will be measured after iteration 0
+      // IR parsing failed — fall back to file-based measurement
+      try {
+        baselineComplexity = await measureComplexity(baselineHarness);
+      } catch {
+        // Baseline not available yet — will be measured after iteration 0
+      }
     }
   }
 
@@ -200,7 +209,13 @@ export async function evolve(
     let aggregate = rawAggregate;
     let iterComplexityCost: number | undefined;
     if (useKL && baselineComplexity) {
-      const currentComplexity = await measureComplexity(harnessPath);
+      let currentComplexity: ComplexityMetrics;
+      try {
+        const iterIR = await parseHarness(harnessPath);
+        currentComplexity = measureComplexityFromIR(iterIR);
+      } catch {
+        currentComplexity = await measureComplexity(harnessPath);
+      }
       const diffRatio = await computeDiffRatio(
         harnessPath,
         path.join(workspacePath, 'iterations', '0', 'harness'),
@@ -226,7 +241,12 @@ export async function evolve(
       baselineScore = aggregate;
       // Measure baseline complexity if not yet available
       if (useKL && !baselineComplexity) {
-        baselineComplexity = await measureComplexity(harnessPath);
+        try {
+          baselineIR = await parseHarness(harnessPath);
+          baselineComplexity = measureComplexityFromIR(baselineIR);
+        } catch {
+          baselineComplexity = await measureComplexity(harnessPath);
+        }
       }
     }
 

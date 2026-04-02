@@ -3,10 +3,19 @@ import fs from 'fs/promises';
 import path from 'path';
 import {
   measureComplexity,
+  measureComplexityFromIR,
   computeComplexityCost,
   applyKLPenalty,
   computeDiffRatio,
 } from '../regularization.js';
+import {
+  createEmptyIR,
+  createSection,
+  createCommandNode,
+  createRuleNode,
+  createAgentNode,
+} from '../../ir/types.js';
+import type { HarnessIR } from '../../ir/types.js';
 
 let tempDir: string;
 
@@ -148,6 +157,89 @@ describe('applyKLPenalty', () => {
     const penalized = applyKLPenalty(80, -0.2, 0.1);
     // 80 - 0.1 * (-0.2) * 100 = 80 + 2 = 82
     expect(penalized).toBe(82);
+  });
+});
+
+describe('measureComplexityFromIR', () => {
+  it('measures complexity from empty IR', () => {
+    const ir = createEmptyIR();
+    const metrics = measureComplexityFromIR(ir);
+
+    expect(metrics.totalSections).toBe(0);
+    expect(metrics.totalRules).toBe(0);
+    expect(metrics.totalCommands).toBe(0);
+    expect(metrics.totalFiles).toBe(0);
+    expect(metrics.totalLines).toBe(0);
+    expect(metrics.diffFromBaseline).toBe(0);
+  });
+
+  it('measures complexity from IR with sections, commands, and rules', () => {
+    const ir = createEmptyIR();
+    ir.sections = [
+      createSection('purpose', '## Purpose', 'Build things\nLine 2', 0),
+      createSection('conventions', '## Conventions', 'Use TypeScript\nStrict mode\nLine 3', 1),
+    ];
+    ir.commands = [
+      createCommandNode('build', 'npm run build'),
+      createCommandNode('test', 'npm test\nLine 2'),
+    ];
+    ir.rules = [
+      createRuleNode('security', 'No dynamic code execution.'),
+    ];
+
+    const metrics = measureComplexityFromIR(ir);
+
+    expect(metrics.totalSections).toBe(2);
+    expect(metrics.totalCommands).toBe(2);
+    expect(metrics.totalRules).toBe(1);
+    expect(metrics.totalFiles).toBeGreaterThan(0);
+    expect(metrics.totalLines).toBeGreaterThan(0);
+    expect(metrics.diffFromBaseline).toBe(0);
+  });
+
+  it('counts agents, skills, docs, and hooks in totalFiles', () => {
+    const ir = createEmptyIR();
+    ir.agents = [createAgentNode('researcher', 'Research things.')];
+    ir.skills = [{ name: 'tdd', content: 'Test-driven development.' }];
+    ir.docs = [{ name: 'api', content: 'API docs.' }];
+    ir.hooks = [{ name: 'pre-check', content: 'check()', type: 'command' }];
+
+    const metrics = measureComplexityFromIR(ir);
+
+    // 1 agent + 1 skill + 1 doc + 1 hook = 4 files
+    expect(metrics.totalFiles).toBe(4);
+  });
+
+  it('counts settings and mcp servers as files when present', () => {
+    const ir = createEmptyIR();
+    ir.settings = {
+      ...ir.settings,
+      statusLine: { command: 'git status' },
+    };
+    ir.mcpServers = [{ id: 'test-server', command: 'npx', args: ['test'] }];
+
+    const metrics = measureComplexityFromIR(ir);
+
+    // 1 settings + 1 mcp = 2 files
+    expect(metrics.totalFiles).toBe(2);
+  });
+
+  it('counts totalLines across all content nodes', () => {
+    const ir = createEmptyIR();
+    ir.sections = [
+      createSection('purpose', '## Purpose', 'Line 1\nLine 2\nLine 3', 0),
+    ];
+    ir.commands = [
+      createCommandNode('build', 'Line A\nLine B'),
+    ];
+    ir.rules = [
+      createRuleNode('style', 'Single line'),
+    ];
+
+    const metrics = measureComplexityFromIR(ir);
+
+    // Sections: 3 lines, Commands: 2 lines, Rules: 1 line = 6 lines
+    expect(metrics.totalLines).toBe(6);
   });
 });
 
