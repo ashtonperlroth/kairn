@@ -65,6 +65,9 @@ export interface EvolveConfig {
   maxTaskDrop: number;
   usePrincipal: boolean;
   evalSampleSize: number;
+  samplingStrategy: 'thompson' | 'uniform';
+  klLambda: number;
+  pbtBranches: number;
 }
 
 // Shape of parsed tasks.yaml
@@ -136,6 +139,8 @@ export interface IterationLog {
   proposal: Proposal | null;    // null for iteration 0 (baseline eval) or rollback
   diffPatch: string | null;     // null for iteration 0 or rollback
   timestamp: string;
+  rawScore?: number;            // pre-KL-penalty score (when KL regularization is active)
+  complexityCost?: number;      // KL complexity cost for this iteration
 }
 
 // Final result of an evolution run

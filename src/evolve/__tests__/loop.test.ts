@@ -55,6 +55,9 @@ function makeEvolveConfig(overrides: Partial<EvolveConfig> = {}): EvolveConfig {
     maxTaskDrop: 20,
     usePrincipal: false,
     evalSampleSize: 0,
+    samplingStrategy: 'uniform',
+    klLambda: 0,
+    pbtBranches: 3,
     ...overrides,
   };
 }

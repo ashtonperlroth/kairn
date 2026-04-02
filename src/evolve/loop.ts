@@ -5,9 +5,14 @@ import { propose } from './proposer.js';
 import { applyMutations } from './mutator.js';
 import { writeIterationLog } from './trace.js';
 import { copyDir } from './baseline.js';
+import { initBeliefs, sampleThompson, updateBeliefs, loadBeliefs, saveBeliefs } from './sampling.js';
+import { measureComplexity, computeComplexityCost, applyKLPenalty, computeDiffRatio } from './regularization.js';
+import type { TaskBelief } from './sampling.js';
+import type { ComplexityMetrics } from './regularization.js';
 import type { KairnConfig } from '../types.js';
 import type {
   Task,
+  Score,
   EvolveConfig,
   IterationLog,
   EvolveResult,
@@ -59,6 +64,31 @@ export async function evolve(
   let bestIteration = 0;
   let baselineScore = 0;
 
+  // Thompson Sampling: initialize or load beliefs
+  const useThompson = evolveConfig.samplingStrategy === 'thompson' && evolveConfig.evalSampleSize > 0;
+  let beliefs: TaskBelief[] = useThompson
+    ? (await loadBeliefs(workspacePath) ?? initBeliefs(tasks))
+    : [];
+
+  // KL Regularization: measure baseline complexity
+  const useKL = evolveConfig.klLambda > 0;
+  let baselineComplexity: ComplexityMetrics | null = null;
+  if (useKL) {
+    const baselineHarness = path.join(workspacePath, 'iterations', '0', 'harness');
+    try {
+      baselineComplexity = await measureComplexity(baselineHarness);
+    } catch {
+      // Baseline not available yet — will be measured after iteration 0
+    }
+  }
+
+  // Seeded RNG for Thompson Sampling (deterministic per-run)
+  let rngState = 42;
+  const rng = (): number => {
+    rngState = (rngState * 1664525 + 1013904223) & 0xffffffff;
+    return (rngState >>> 0) / 0x100000000;
+  };
+
   for (let iter = 0; iter < evolveConfig.maxIterations; iter++) {
     const harnessPath = path.join(
       workspacePath,
@@ -108,16 +138,25 @@ export async function evolve(
         }
       }
 
-      // Mini-batch sampling: if evalSampleSize is set, sample from remaining tasks
+      // Mini-batch sampling: Thompson or uniform
       const sampleSize = evolveConfig.evalSampleSize;
       if (sampleSize > 0 && sampleSize < tasksToRun.length) {
-        // Seeded shuffle based on iteration number for reproducibility
-        const shuffled = [...tasksToRun].sort((a, b) => {
-          const hashA = (iter * 31 + a.id.charCodeAt(0)) % 1000;
-          const hashB = (iter * 31 + b.id.charCodeAt(0)) % 1000;
-          return hashA - hashB;
-        });
-        const sampled = new Set(shuffled.slice(0, sampleSize).map(t => t.id));
+        let sampled: Set<string>;
+
+        if (useThompson) {
+          // Thompson Sampling: select tasks proportional to uncertainty
+          const relevantBeliefs = beliefs.filter(b => tasksToRun.some(t => t.id === b.taskId));
+          const selectedIds = sampleThompson(relevantBeliefs, sampleSize, rng);
+          sampled = new Set(selectedIds);
+        } else {
+          // Uniform: seeded shuffle (v2.5.2 behavior)
+          const shuffled = [...tasksToRun].sort((a, b) => {
+            const hashA = (iter * 31 + a.id.charCodeAt(0)) % 1000;
+            const hashB = (iter * 31 + b.id.charCodeAt(0)) % 1000;
+            return hashA - hashB;
+          });
+          sampled = new Set(shuffled.slice(0, sampleSize).map(t => t.id));
+        }
 
         // Carry forward unsampled tasks
         for (const task of tasksToRun) {
@@ -129,7 +168,7 @@ export async function evolve(
               type: 'task-skipped',
               iteration: iter,
               taskId: task.id,
-              message: `Sampled out ${task.id} (mini-batch ${sampleSize}/${tasksToRun.length})`,
+              message: `Sampled out ${task.id} (${useThompson ? 'thompson' : 'uniform'} ${sampleSize}/${tasksToRun.length})`,
             });
           }
         }
@@ -155,11 +194,41 @@ export async function evolve(
       (sum, s) => sum + (s.score ?? (s.pass ? 100 : 0)),
       0,
     );
-    const aggregate = allScores.length > 0 ? total / allScores.length : 0;
+    const rawAggregate = allScores.length > 0 ? total / allScores.length : 0;
+
+    // KL Regularization: penalize complexity drift
+    let aggregate = rawAggregate;
+    let iterComplexityCost: number | undefined;
+    if (useKL && baselineComplexity) {
+      const currentComplexity = await measureComplexity(harnessPath);
+      const diffRatio = await computeDiffRatio(
+        harnessPath,
+        path.join(workspacePath, 'iterations', '0', 'harness'),
+      );
+      currentComplexity.diffFromBaseline = diffRatio;
+      iterComplexityCost = computeComplexityCost(currentComplexity, baselineComplexity);
+      aggregate = applyKLPenalty(rawAggregate, iterComplexityCost, evolveConfig.klLambda);
+    }
+
+    // Thompson Sampling: update beliefs with results
+    if (useThompson) {
+      const scoreMap: Record<string, number> = {};
+      for (const [taskId, score] of Object.entries(results)) {
+        scoreMap[taskId] = score.score ?? (score.pass ? 100 : 0);
+      }
+      beliefs = updateBeliefs(beliefs, scoreMap);
+      await saveBeliefs(workspacePath, beliefs);
+    }
 
     onProgress?.({ type: 'iteration-scored', iteration: iter, score: aggregate });
 
-    if (iter === 0) baselineScore = aggregate;
+    if (iter === 0) {
+      baselineScore = aggregate;
+      // Measure baseline complexity if not yet available
+      if (useKL && !baselineComplexity) {
+        baselineComplexity = await measureComplexity(harnessPath);
+      }
+    }
 
     // 2. ROLLBACK CHECK (aggregate regression OR per-task drop exceeding maxTaskDrop)
     let shouldRollback = iter > 0 && aggregate < bestScore;
@@ -206,6 +275,8 @@ export async function evolve(
         proposal: null,
         diffPatch: null,
         timestamp: new Date().toISOString(),
+        rawScore: useKL ? rawAggregate : undefined,
+        complexityCost: iterComplexityCost,
       };
       await writeIterationLog(workspacePath, rollbackLog);
       history.push(rollbackLog);
@@ -268,6 +339,8 @@ export async function evolve(
         proposal: null,
         diffPatch: null,
         timestamp: new Date().toISOString(),
+        rawScore: useKL ? rawAggregate : undefined,
+        complexityCost: iterComplexityCost,
       };
       await writeIterationLog(workspacePath, perfectLog);
       history.push(perfectLog);
@@ -283,6 +356,8 @@ export async function evolve(
         proposal: null,
         diffPatch: null,
         timestamp: new Date().toISOString(),
+        rawScore: useKL ? rawAggregate : undefined,
+        complexityCost: iterComplexityCost,
       };
       await writeIterationLog(workspacePath, finalLog);
       history.push(finalLog);
@@ -330,6 +405,8 @@ export async function evolve(
         proposal: null,
         diffPatch: null,
         timestamp: new Date().toISOString(),
+        rawScore: useKL ? rawAggregate : undefined,
+        complexityCost: iterComplexityCost,
       };
       await writeIterationLog(workspacePath, skipLog);
       history.push(skipLog);
@@ -369,6 +446,8 @@ export async function evolve(
       proposal,
       diffPatch,
       timestamp: new Date().toISOString(),
+      rawScore: useKL ? rawAggregate : undefined,
+      complexityCost: iterComplexityCost,
     };
     await writeIterationLog(workspacePath, iterLog);
     history.push(iterLog);

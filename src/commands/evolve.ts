@@ -31,6 +31,9 @@ const DEFAULT_CONFIG: EvolveConfig = {
   maxTaskDrop: 20,
   usePrincipal: false,
   evalSampleSize: 0,
+  samplingStrategy: 'thompson',
+  klLambda: 0.1,
+  pbtBranches: 3,
 };
 
 /**
@@ -53,6 +56,9 @@ export async function loadEvolveConfigFromWorkspace(workspacePath: string): Prom
       maxTaskDrop: (parsed.max_task_drop as number) ?? DEFAULT_CONFIG.maxTaskDrop,
       usePrincipal: (parsed.use_principal as boolean) ?? DEFAULT_CONFIG.usePrincipal,
       evalSampleSize: (parsed.eval_sample_size as number) ?? DEFAULT_CONFIG.evalSampleSize,
+      samplingStrategy: (parsed.sampling_strategy as EvolveConfig['samplingStrategy']) ?? DEFAULT_CONFIG.samplingStrategy,
+      klLambda: (parsed.kl_lambda as number) ?? DEFAULT_CONFIG.klLambda,
+      pbtBranches: (parsed.pbt_branches as number) ?? DEFAULT_CONFIG.pbtBranches,
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -211,8 +217,10 @@ evolveCommand
   .option('--max-task-drop <n>', 'Roll back if any task drops more than N points', '20')
   .option('--principal', 'Run Principal Proposer as final iteration')
   .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '0')
+  .option('--sampling <strategy>', 'Task sampling strategy: thompson or uniform', 'thompson')
+  .option('--kl-lambda <n>', 'KL regularization strength (0 = disabled)', '0.1')
   .option('-i, --interactive', 'Configure evolution settings interactively')
-  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string; interactive?: boolean }) => {
+  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string; sampling?: string; klLambda?: string; interactive?: boolean }) => {
     try {
       const projectRoot = process.cwd();
       const workspace = path.join(projectRoot, '.kairn-evolve');
@@ -298,7 +306,8 @@ evolveCommand
         const hasExplicitFlags = options.iterations !== '5' || options.runs !== '1' ||
           options.parallel !== '1' || options.maxMutations !== '3' ||
           options.pruneThreshold !== '95' || options.maxTaskDrop !== '20' ||
-          options.principal || options.evalSample !== '0';
+          options.principal || options.evalSample !== '0' ||
+          options.sampling !== 'thompson' || options.klLambda !== '0.1';
 
         if (!hasExplicitFlags) {
           // Interactive configuration menu
@@ -407,6 +416,20 @@ evolveCommand
             process.exit(1);
           }
           evolveConfig.evalSampleSize = evalSample;
+
+          const sampling = options.sampling ?? 'thompson';
+          if (sampling !== 'thompson' && sampling !== 'uniform') {
+            console.log(ui.error('--sampling must be "thompson" or "uniform"'));
+            process.exit(1);
+          }
+          evolveConfig.samplingStrategy = sampling;
+
+          const klLambda = parseFloat(options.klLambda ?? '0.1');
+          if (isNaN(klLambda) || klLambda < 0) {
+            console.log(ui.error('--kl-lambda must be a non-negative number'));
+            process.exit(1);
+          }
+          evolveConfig.klLambda = klLambda;
         }
 
         // Verify baseline exists
@@ -483,7 +506,7 @@ evolveCommand
         console.log('');
 
         // Iteration table
-        const showVariance = runs > 1;
+        const showVariance = evolveConfig.runsPerTask > 1;
         console.log(showVariance
           ? '  Iter  Score        Mutations  Status'
           : '  Iter  Score     Mutations  Status');

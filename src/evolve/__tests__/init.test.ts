@@ -29,6 +29,15 @@ function makeEvolveConfig(overrides: Partial<EvolveConfig> = {}): EvolveConfig {
     scorer: "pass-fail",
     maxIterations: 5,
     parallelTasks: 1,
+    runsPerTask: 1,
+    maxMutationsPerIteration: 3,
+    pruneThreshold: 95,
+    maxTaskDrop: 20,
+    usePrincipal: false,
+    evalSampleSize: 0,
+    samplingStrategy: 'thompson',
+    klLambda: 0.1,
+    pbtBranches: 3,
     ...overrides,
   };
 }
