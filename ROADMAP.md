@@ -371,7 +371,7 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [x] **Expanded security rules** — PreToolUse patterns from 5 to 20+ (credential leaks, injection, destructive ops, network)
 - [x] **Pruning policy** — principle: harness complexity should decrease as models improve
 
-### v2.10.0 — Persistent Execution Loop [NEXT]
+### v2.10.0 — Persistent Execution Loop ([design doc](docs/design/v2.10-persistent-execution.md)) [NEXT]
 > Inspired by OMC's Ralph loop. The single biggest gap between Kairn-generated harnesses and production agent workflows: persistence. Today, `/project:develop` runs once linearly. If it fails, the user restarts manually. A persistence loop keeps working until all acceptance criteria pass, tracks progress across retries, and auto-routes complex tasks through the loop.
 
 **Core: `/project:persist` command (generated in every harness)**
