@@ -288,6 +288,26 @@ describe('spawnClaude', () => {
     }
   });
 
+  it('passes --dangerously-skip-permissions flag', async () => {
+    // Create a fake "claude" that echoes its arguments
+    const fakeScript = path.join(fakeBinDir, 'claude');
+    await fs.writeFile(
+      fakeScript,
+      '#!/bin/bash\necho "ARGS: $@"',
+    );
+    await fs.chmod(fakeScript, 0o755);
+
+    const origPath = process.env['PATH'];
+    process.env['PATH'] = `${fakeBinDir}:${origPath}`;
+
+    try {
+      const result = await spawnClaude('test instruction', tempDir, 10);
+      expect(result.stdout).toContain('--dangerously-skip-permissions');
+    } finally {
+      process.env['PATH'] = origPath;
+    }
+  });
+
   it('handles spawn error gracefully', async () => {
     // Point to a nonexistent binary
     const origPath = process.env['PATH'];

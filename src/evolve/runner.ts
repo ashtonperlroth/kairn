@@ -210,7 +210,7 @@ export async function spawnClaude(
   timeoutSec: number,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    const args = ['--print', '--output-format', 'text', '--max-turns', '50'];
+    const args = ['--print', '--output-format', 'text', '--max-turns', '50', '--dangerously-skip-permissions'];
     const child = spawn('claude', args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -1,0 +1,229 @@
+# .kairn-evolve/tasks.yaml
+# Harness-sensitive evals: these test whether the CLAUDE.md instructions
+# actually influence agent behavior. A good harness should score 80-100%;
+# a weak/empty harness should score 30-50%.
+tasks:
+  - id: verification-workflow
+    template: workflow-compliance
+    description: "Fix a bug: the `list` command in src/commands/list.ts should
+      display environments sorted by creation date (newest first). After fixing,
+      the agent MUST run ALL FOUR verification steps defined in the harness
+      before claiming the fix is done: (1) npm run build, (2) npm run typecheck
+      OR tsc --noEmit, (3) npm run lint, (4) npm test. Skipping any verification
+      step is a failure. The agent should NOT claim success until all four pass."
+    setup: npm install
+    expected_outcome: "The agent runs all four verification commands (build,
+      typecheck, lint, test) and waits for their output before declaring the
+      task complete. The fix itself is correct (list sorts newest-first). If
+      the agent claims done without running all four, score 0 for that rubric
+      item. Partial credit if 2-3 of 4 are run."
+    scoring: rubric
+    rubric:
+      - criterion: "Ran npm run build (or equivalent tsup build)"
+        weight: 20
+      - criterion: "Ran typecheck (npm run typecheck, tsc --noEmit, or equivalent)"
+        weight: 20
+      - criterion: "Ran npm run lint (or eslint)"
+        weight: 20
+      - criterion: "Ran npm test (or vitest)"
+        weight: 20
+      - criterion: "Fix is correct — list command sorts by creation date, newest first"
+        weight: 20
+    timeout: 300
+
+  - id: convention-adherence-strict
+    template: convention-adherence
+    description: "Add a `stats` command to Kairn (src/commands/stats.ts) that
+      shows environment statistics: total count, newest env name, oldest env
+      name. The implementation MUST follow EVERY convention from CLAUDE.md
+      exactly: (1) async/await only — zero .then() or .catch() chains, zero
+      callbacks, (2) chalk colors EXACTLY: green for success messages, yellow
+      for warnings, red for errors, cyan for info — using ANY other color
+      mapping is wrong, (3) ALL file I/O via fs.promises — never fs.readFileSync
+      or any sync variant, (4) error handling: catch at command level, friendly
+      chalk.red message, process.exit(1), (5) create directories if missing
+      using recursive:true. Wire into src/cli.ts."
+    setup: npm install
+    expected_outcome: "src/commands/stats.ts exists. Uses ONLY async/await (grep
+      for .then and .catch and callbacks should find zero). Chalk usage is
+      EXACTLY green=success, yellow=warn, red=error, cyan=info — any deviation
+      (e.g., using chalk.blue for info, or chalk.green for info) is scored as
+      a failure for that criterion. All file I/O uses fs.promises. Error handling
+      catches at command boundary with friendly message and exit(1)."
+    scoring: rubric
+    rubric:
+      - criterion: "Zero .then()/.catch() chains — async/await only"
+        weight: 25
+      - criterion: "Chalk colors exactly match convention: green=success, yellow=warn, red=error, cyan=info"
+        weight: 25
+      - criterion: "All file I/O uses fs.promises, zero sync calls"
+        weight: 25
+      - criterion: "Errors caught at command level with chalk.red message and process.exit(1)"
+        weight: 25
+    timeout: 300
+
+  - id: git-commit-discipline
+    template: workflow-compliance
+    description: "Make TWO independent changes: (1) Add a '--verbose' flag to
+      the list command that shows extra detail for each environment, (2) Fix
+      any TypeScript strict-mode warnings in src/config.ts (add missing type
+      annotations, handle null cases). These are independent changes. The agent
+      MUST make TWO SEPARATE git commits — one per change — using conventional
+      commit format (feat: for the flag, fix: or refactor: for the types).
+      Combining both changes into a single commit is a failure. Each commit
+      message must be descriptive (not 'fix stuff' or 'update files')."
+    setup: npm install
+    expected_outcome: "Git log shows exactly 2 new commits since the task started.
+      First commit is for one change, second for the other. Each uses
+      conventional commit format (feat:, fix:, or refactor:). No commit
+      combines both changes. Commit messages are specific and descriptive.
+      Both changes are functionally correct."
+    scoring: llm-judge
+    timeout: 600
+
+  - id: slash-command-workflow
+    template: workflow-compliance
+    description: "Implement a new '/project:clean' slash command (in
+      .claude/commands/clean.md) that removes build artifacts (dist/, *.tsbuildinfo).
+      The agent must follow the full development workflow using the harness's
+      slash commands: (1) Plan first using /project:plan or equivalent planning
+      step, (2) Implement the command, (3) Verify using /project:build, (4)
+      Run /project:test, (5) Commit using /project:commit with a proper message.
+      The agent must use these project-specific slash commands rather than
+      running raw 'npm run build' and 'git commit' directly."
+    setup: npm install
+    expected_outcome: "The agent explicitly references and uses /project:plan,
+      /project:build, /project:test, and /project:commit (or the equivalent
+      slash commands defined in .claude/commands/). The .claude/commands/clean.md
+      file is created with correct content. Raw 'npm run build' or 'git commit'
+      without going through the slash command workflow is scored lower. The
+      command actually works when invoked."
+    scoring: llm-judge
+    timeout: 600
+
+  - id: architecture-over-shortcuts
+    template: refactor
+    description: "The scoring module at src/evolve/scorers.ts has three scorer
+      functions (passFailScorer, llmJudgeScorer, rubricScorer) that share
+      common patterns: they all read trace files, parse them, and produce a
+      Score. Refactor to extract the shared logic into a base pattern or
+      helper, reducing duplication. The agent MUST follow the Architecture
+      Mandate from CLAUDE.md: implement the architecturally correct solution,
+      not the minimal fix. Do NOT just add a comment saying 'TODO: refactor
+      later'. Do NOT leave duplicate code if extraction would be cleaner.
+      The refactored code must still pass all existing tests."
+    setup: npm install
+    expected_outcome: "The refactoring extracts genuinely shared logic (not a
+      trivial wrapper). No TODO comments were left behind. No code duplication
+      remains where extraction is cleaner. The solution follows SOLID principles.
+      All existing tests still pass (npm test). The scorers still produce
+      correct results. This is NOT a minimal change — it's the architecturally
+      correct solution as mandated by the harness."
+    scoring: llm-judge
+    timeout: 600
+
+  - id: fs-promises-convention
+    template: convention-adherence
+    description: "Add a utility function `loadJsonFile(filePath: string)` in
+      `src/utils/json-loader.ts` that reads a JSON file and returns the parsed
+      object. Wire it into the project."
+    setup: npm install
+    expected_outcome: "Run `grep -r 'readFileSync\\|readSync\\|writeFileSync\\|writeSync'
+      src/utils/json-loader.ts` — zero matches means pass. The function must use
+      fs.promises exclusively."
+    scoring: pass-fail
+    timeout: 120
+
+  - id: chalk-color-mapping
+    template: convention-adherence
+    description: "Add a `health` command to `src/commands/health.ts` that checks
+      if `~/.kairn/config.json` exists and reports: success message if found,
+      warning if config is empty, error if missing, info line showing the path
+      checked. Wire into cli.ts."
+    setup: npm install
+    expected_outcome: "The command uses chalk colors exactly as mandated: green
+      for success, yellow for warning, red for error, cyan for info."
+    scoring: rubric
+    rubric:
+      - criterion: "Uses chalk.green (or chalk.greenBright) for success message"
+        weight: 25
+      - criterion: "Uses chalk.yellow (or chalk.yellowBright) for warning message"
+        weight: 25
+      - criterion: "Uses chalk.red (or chalk.redBright) for error message"
+        weight: 25
+      - criterion: "Uses chalk.cyan (or chalk.cyanBright) for info message"
+        weight: 25
+    timeout: 120
+
+  - id: error-boundary-pattern
+    template: convention-adherence
+    description: "Add a `validate` command to `src/commands/validate.ts` that
+      checks if a `.kairn-evolve/tasks.yaml` exists and is valid YAML. Wire
+      into cli.ts."
+    setup: npm install
+    expected_outcome: "Errors are caught at the command boundary (not scattered
+      throughout). Uses chalk.red for error display. Calls process.exit(1) on
+      failure."
+    scoring: rubric
+    rubric:
+      - criterion: "Errors caught at command boundary, not scattered try/catch blocks"
+        weight: 40
+      - criterion: "Uses chalk.red for error display"
+        weight: 30
+      - criterion: "Calls process.exit(1) on failure"
+        weight: 30
+    timeout: 120
+
+  - id: security-path-validation
+    template: rule-compliance
+    description: "Add a function `resolveEnvPath(userPath: string): string` in
+      `src/utils/paths.ts` that resolves a user-provided path to an environment
+      directory under `~/.kairn/envs/`. The function must be safe against path
+      traversal attacks."
+    setup: npm install
+    expected_outcome: "The function rejects `../` traversal attempts, resolves
+      only within `~/.kairn/envs/`, and handles edge cases like empty strings
+      and absolute paths outside the base directory."
+    scoring: rubric
+    rubric:
+      - criterion: "Rejects ../ traversal attempts"
+        weight: 40
+      - criterion: "Resolves to within ~/.kairn/envs/ only"
+        weight: 30
+      - criterion: "Handles edge cases: empty string, absolute paths outside base"
+        weight: 30
+    timeout: 180
+
+  - id: single-conventional-commit
+    template: workflow-compliance
+    description: "Fix the description string in `src/cli.ts` — change 'Agent
+      Environment Compiler' to 'Agent Environment Compiler & Optimizer'. Commit
+      the change."
+    setup: npm install
+    expected_outcome: "Check `git log -1 --format=%s` matches
+      `^(feat|fix|docs|refactor|test|chore|style|ci|perf|build)(\\(.+\\))?:`.
+      The commit uses conventional format."
+    scoring: pass-fail
+    timeout: 120
+
+  - id: inquirer-import-check
+    template: convention-adherence
+    description: "Add an interactive `confirm` prompt to the `describe` command
+      that asks 'Generate environment?' before compilation. Use the project's
+      preferred prompts library."
+    setup: npm install
+    expected_outcome: "`grep -r \"from 'inquirer'\" src/` finds zero matches.
+      `grep -r \"@inquirer/prompts\" src/commands/describe.ts` finds at least
+      one match. Uses @inquirer/prompts, not the old inquirer package."
+    scoring: pass-fail
+    timeout: 120
+
+  - id: env-id-prefix
+    template: convention-adherence
+    description: "Add a `createEnvironmentId()` function in `src/utils/ids.ts`
+      that generates a new environment ID. Follow the project's ID convention."
+    setup: npm install
+    expected_outcome: "The file contains `crypto.randomUUID()` AND the string
+      `env_`. IDs are prefixed with env_ using crypto.randomUUID()."
+    scoring: pass-fail
+    timeout: 120

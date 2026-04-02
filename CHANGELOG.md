@@ -7,6 +7,22 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.5.2] — 2026-04-01
+
+### Fixed
+- **Permission blocking in evolve loop** — `spawnClaude()` now passes `--dangerously-skip-permissions` so eval agents in `--print` mode no longer stall on permission prompts in disposable worktrees
+
+### Added
+- **7 new eval tasks** (5 → 12 total) — `fs-promises-convention`, `chalk-color-mapping`, `error-boundary-pattern`, `security-path-validation`, `single-conventional-commit`, `inquirer-import-check`, `env-id-prefix`
+- **Mini-batch sampling** enabled by default — `eval_sample_size: 5` samples 5 of 12 tasks on middle iterations (~40% cost reduction per evolution cycle)
+
+### Changed
+- `parallel_tasks` default increased to 2 (safe with worktree isolation)
+- `prune_threshold` lowered from 95 to 90 for broader coverage with expanded task menu
+- `runs_per_task` explicitly set to 1 in config
+
+---
+
 ## [2.5.0] — 2026-04-01
 
 ### Added
