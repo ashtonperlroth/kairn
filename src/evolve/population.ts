@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { copyDir } from './baseline.js';
 import { evolve } from './loop.js';
+import { runSynthesis } from './synthesis.js';
 import type { KairnConfig } from '../types.js';
 import type {
   Task,
@@ -192,8 +193,57 @@ export async function runPopulation(
     }
   }
 
+  // Meta-Principal synthesis: combine best mutations from all branches
+  let synthesizedResult: EvolveResult | undefined;
+  try {
+    const baselinePath = path.join(workspacePath, 'baseline');
+    const synthesisResult = await runSynthesis(
+      { branches: branchResults, tasks, baselineHarnessPath: baselinePath },
+      kairnConfig,
+      evolveConfig,
+      workspacePath,
+    );
+
+    if (synthesisResult) {
+      const synthScore = synthesisResult.result.aggregate;
+      synthesizedResult = {
+        iterations: [{
+          iteration: 0,
+          score: synthScore,
+          taskResults: synthesisResult.result.results,
+          proposal: {
+            reasoning: synthesisResult.reasoning,
+            mutations: synthesisResult.mutations,
+            expectedImpact: {},
+          },
+          diffPatch: null,
+          timestamp: new Date().toISOString(),
+        }],
+        bestIteration: 0,
+        bestScore: synthScore,
+        baselineScore: bestScore,
+      };
+
+      onProgress?.({
+        type: 'iteration-scored',
+        iteration: 0,
+        score: synthScore,
+        message: `Meta-Principal synthesis: ${synthScore.toFixed(1)}%`,
+      });
+
+      // If synthesis beats all branches, it becomes the best
+      if (synthScore > bestScore) {
+        bestScore = synthScore;
+        bestBranch = -1; // -1 indicates synthesis won
+      }
+    }
+  } catch {
+    // Synthesis failed — use best branch result
+  }
+
   return {
     branches: branchResults,
+    synthesizedResult,
     bestBranch,
     bestScore,
   };
