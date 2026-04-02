@@ -121,6 +121,33 @@ Place in `.claude/settings.json` (project-scoped, committed to git).
 }
 ```
 
+## Full with Memory Persistence (Multi-Session Projects)
+```json
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [{
+          "type": "command",
+          "command": "if [ -f .claude/memory.json ]; then MEMORY=$(cat .claude/memory.json) && printf '{\"continue\":true,\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"RESTORED SESSION MEMORY:\\n%s\"}}' \"$MEMORY\"; else echo '{\"continue\":true}'; fi"
+        }]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [{
+          "type": "command",
+          "command": "MEMORY=$(jq -n --arg decisions \"$(tail -20 .claude/docs/DECISIONS.md 2>/dev/null)\" --arg sprint \"$(head -30 .claude/docs/SPRINT.md 2>/dev/null)\" --arg gotchas \"$(grep -A1 '^-' .claude/CLAUDE.md 2>/dev/null | grep -v 'none yet' | head -10)\" '{decisions: $decisions, sprint: $sprint, gotchas: $gotchas, timestamp: now | todate}') && echo \"$MEMORY\" > .claude/memory.json"
+        }]
+      }
+    ]
+  }
+}
+```
+
 ## Notes
 - Always include the `$schema` for IDE autocomplete
 - `deny` arrays merge across scopes — project deny + user deny both apply

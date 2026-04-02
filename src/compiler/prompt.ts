@@ -294,6 +294,17 @@ All projects should include a PostCompact hook to restore context after compacti
 
 Merge this into the settings hooks alongside the PreToolUse and PostToolUse hooks.
 
+For long-running sessions (>2 hours or >3 compactions), prefer "Full Reset" over re-inject:
+replace the prompt-type PostCompact hook with a command-type hook that pipes CLAUDE.md + SPRINT.md + DECISIONS.md content directly into additionalContext.
+
+## Memory Persistence Hooks
+
+For projects with multi-session workflows, include SessionStart/End hooks that persist context to \`.claude/memory.json\`:
+- **SessionEnd:** Save recent decisions, sprint status, and known gotchas to \`.claude/memory.json\`
+- **SessionStart:** Load \`.claude/memory.json\` and inject as additionalContext
+
+This ensures accumulated project knowledge survives session boundaries.
+
 ## For Code Projects, Additionally Include
 
 - \`/project:plan\` command (plan before coding)
