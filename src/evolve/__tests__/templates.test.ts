@@ -93,7 +93,8 @@ describe("EVAL_TEMPLATES", () => {
     expect(keys).toContain("workflow-compliance");
     expect(keys).toContain("rule-compliance");
     expect(keys).toContain("intent-routing");
-    expect(keys).toHaveLength(10);
+    expect(keys).toContain("persistence-completion");
+    expect(keys).toHaveLength(11);
   });
 
   it("each template has required metadata fields", () => {

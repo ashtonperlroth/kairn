@@ -75,6 +75,7 @@ const TEMPLATE_ASPECTS: Record<EvalTemplate, HarnessAspect[]> = {
   'test-writing': ['verification', 'commands'],
   'config-change': ['settings', 'mcp'],
   'documentation': ['general'],
+  'persistence-completion': ['commands', 'verification'],
 };
 
 /**

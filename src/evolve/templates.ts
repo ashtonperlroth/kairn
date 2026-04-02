@@ -70,6 +70,12 @@ export const EVAL_TEMPLATES: Record<EvalTemplate, TemplateMetadata> = {
     description: 'Test that natural language prompts route to the correct workflow command via intent hooks',
     bestFor: ['feature-development', 'full-stack', 'api-building'],
   },
+  'persistence-completion': {
+    id: 'persistence-completion',
+    name: 'Persistence Completion',
+    description: 'Can the agent complete a multi-criterion task using the persistence loop?',
+    bestFor: ['feature-development', 'full-stack', 'api-building', 'maintenance'],
+  },
 };
 
 /**
@@ -81,10 +87,10 @@ export const EVAL_TEMPLATES: Record<EvalTemplate, TemplateMetadata> = {
  */
 export function selectTemplatesForWorkflow(workflowType: string): EvalTemplate[] {
   const mapping: Record<string, EvalTemplate[]> = {
-    'feature-development': ['add-feature', 'test-writing', 'convention-adherence', 'workflow-compliance', 'intent-routing'],
-    'api-building': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'],
-    'full-stack': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'],
-    'maintenance': ['fix-bug', 'refactor', 'test-writing', 'rule-compliance'],
+    'feature-development': ['add-feature', 'test-writing', 'convention-adherence', 'workflow-compliance', 'intent-routing', 'persistence-completion'],
+    'api-building': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence', 'persistence-completion'],
+    'full-stack': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence', 'persistence-completion'],
+    'maintenance': ['fix-bug', 'refactor', 'test-writing', 'rule-compliance', 'persistence-completion'],
     'debugging': ['fix-bug', 'test-writing', 'rule-compliance'],
     'qa': ['fix-bug', 'test-writing', 'add-feature', 'workflow-compliance'],
     'architecture': ['refactor', 'test-writing', 'config-change', 'convention-adherence'],
@@ -110,6 +116,7 @@ IMPORTANT: For harness-aware templates (convention-adherence, workflow-complianc
 - convention-adherence: Task must require following specific conventions from CLAUDE.md (naming, file structure, patterns). Judge by whether output matches the conventions.
 - workflow-compliance: Task must require using project slash commands or workflow steps defined in .claude/commands/. Judge by whether the agent followed the defined workflow.
 - rule-compliance: Task must create a scenario where .claude/rules/ content is relevant. Judge by whether the agent respected all rules.
+- persistence-completion: Task MUST have 3+ acceptance criteria that require sequential implementation. The task description should be a realistic feature request — the agent must parse it into criteria. Judge by: (a) all criteria met (progress.json status: complete), (b) structured tracking used (progress.json exists with 3+ criteria), (c) tests pass, (d) review gate executed (progress.json review field present).
 
 These harness-aware tasks are critical — they test whether the .claude/ environment actually improves agent behavior.
 

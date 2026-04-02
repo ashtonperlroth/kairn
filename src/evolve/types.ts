@@ -1,5 +1,5 @@
 // Eval templates
-export type EvalTemplate = 'add-feature' | 'fix-bug' | 'refactor' | 'test-writing' | 'config-change' | 'documentation' | 'convention-adherence' | 'workflow-compliance' | 'rule-compliance' | 'intent-routing';
+export type EvalTemplate = 'add-feature' | 'fix-bug' | 'refactor' | 'test-writing' | 'config-change' | 'documentation' | 'convention-adherence' | 'workflow-compliance' | 'rule-compliance' | 'intent-routing' | 'persistence-completion';
 
 // Rubric criterion for scored evaluations
 export interface RubricCriterion {
