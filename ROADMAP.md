@@ -339,7 +339,7 @@ Full plan: [`PLAN-v2.6.0.md`](PLAN-v2.6.0.md)
 - [x] Synthesis evaluated against full task suite — must beat best individual branch
 - [x] `kairn evolve apply --pbt` to deploy the winning harness
 
-### v2.7.0 — Structured Harness IR
+### v2.7.0 — Structured Harness IR ([design doc](docs/design/v2.7-harness-ir.md))
 > Raw Markdown mutation will corrupt formatting, accumulate contradictions, and break as files grow. A structured intermediate representation makes mutations composable, diffing meaningful, and format migration tractable.
 
 - [ ] Harness IR: typed data model for CLAUDE.md sections, commands, rules, agents, settings
