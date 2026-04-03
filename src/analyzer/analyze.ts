@@ -90,6 +90,50 @@ export function scopeStrategyToSubdirs(strategy: SamplingStrategy, subdirs: stri
 }
 
 /**
+ * Compute a rank-based weight for a file based on which language owns it.
+ *
+ * In multi-language monorepos, the language detected in the most subdirectories
+ * is the "primary" language and gets weight 0. The second-most-common gets
+ * weight 1, and so on. This weight is used as a fractional tiebreaker
+ * within the same priority tier (multiplied by 0.1 before adding to the tier).
+ *
+ * For single-language projects or when all languages are detected at root level,
+ * every file gets weight 0 (no adjustment).
+ *
+ * @param filePath - Relative file path (e.g., "api/main.py", "src/index.ts").
+ * @param languageLocations - Language detection results with subdirectory tracking.
+ * @returns An integer rank (0 = primary language, 1 = secondary, etc.).
+ */
+export function getLanguageWeight(filePath: string, languageLocations: LanguageDetection[]): number {
+  // Single language or empty: no adjustment
+  if (languageLocations.length <= 1) return 0;
+
+  // Build a subdir → rank map from languageLocations.
+  // languageLocations is already sorted by frequency (most subdirs first),
+  // so the array index IS the rank.
+  const subdirToRank = new Map<string, number>();
+  for (let rank = 0; rank < languageLocations.length; rank++) {
+    for (const subdir of languageLocations[rank].subdirs) {
+      subdirToRank.set(subdir, rank);
+    }
+  }
+
+  // If no language has subdirs (all root-level), no meaningful tiebreaker
+  if (subdirToRank.size === 0) return 0;
+
+  // Match the file path's first path segment against known subdirs
+  const firstSlash = filePath.indexOf('/');
+  if (firstSlash === -1) {
+    // Root-level file (e.g., "README.md") → primary language weight
+    return 0;
+  }
+
+  const firstSegment = filePath.slice(0, firstSlash);
+  const rank = subdirToRank.get(firstSegment);
+  return rank ?? 0; // Unknown subdir → primary language weight
+}
+
+/**
  * System prompt for the analysis LLM call.
  *
  * Instructs the model to produce a structured JSON analysis of the codebase
@@ -200,11 +244,19 @@ export async function analyzeProject(
   ];
 
   // 4. Pack codebase with repomix (priority-tiered truncation)
+  //    Apply proportional priority hints: within the same tier, files from the
+  //    majority language (most subdirs) get a slight priority boost via a
+  //    fractional weight (e.g., tier 2.0 vs 2.1). This is transparent to
+  //    packCodebase — it just sees numbers and sorts ascending.
   const packed = await packCodebase(dir, {
     include,
     exclude: strategy.excludePatterns,
     maxTokens: options?.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-    prioritize: (filePath: string) => classifyFilePriority(filePath, strategy),
+    prioritize: (filePath: string) => {
+      const baseTier = classifyFilePriority(filePath, strategy);
+      const langWeight = getLanguageWeight(filePath, languageLocations);
+      return baseTier + langWeight * 0.1;
+    },
   });
 
   // 5. Guard: empty sample
