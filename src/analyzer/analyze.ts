@@ -17,7 +17,7 @@ import type {
   ConfigKey,
 } from './types.js';
 import { AnalysisError } from './types.js';
-import { getStrategy, getAlwaysInclude, classifyFilePriority, resolveStrategy } from './patterns.js';
+import { getStrategy, getAlwaysInclude, classifyFilePriority, resolveStrategy, mergeStrategies } from './patterns.js';
 import type { SamplingStrategy } from './patterns.js';
 import { packCodebase } from './repomix-adapter.js';
 import {
@@ -91,8 +91,9 @@ Return a single JSON object (no markdown fences, no explanation):
 /**
  * Analyze a project directory using semantic codebase understanding.
  *
- * Samples source files using a language-specific strategy, packs them with
- * repomix, and sends them to an LLM for structured analysis. The result is
+ * Samples source files using language-specific strategies (one per detected
+ * language), merges them into a single unified strategy, packs the codebase
+ * with repomix, and sends to an LLM for structured analysis. The result is
  * cached on disk and reused when the sampled files haven't changed.
  *
  * @param dir - Absolute path to the project directory.
@@ -101,7 +102,7 @@ Return a single JSON object (no markdown fences, no explanation):
  * @param options - Optional flags: `refresh` forces re-analysis even if cache is valid.
  * @returns An AnalysisResult containing both the structured ProjectAnalysis
  *   and the raw packed source code from Repomix sampling.
- * @throws {AnalysisError} With type `no_entry_point` if no sampling strategy exists for the language.
+ * @throws {AnalysisError} With type `no_entry_point` if no sampling strategy exists for any of the detected languages.
  * @throws {AnalysisError} With type `empty_sample` if no source files are found.
  * @throws {AnalysisError} With type `llm_parse_failure` if the LLM response is not valid JSON or missing required fields.
  */
@@ -134,21 +135,23 @@ export async function analyzeProject(
     }
   }
 
-  // 2. Get base language strategy, then enrich with manifest-resolved entry points
-  const baseStrategy = getStrategy(profile.language);
-  if (!baseStrategy) {
+  // 2. Get strategies for all detected languages, resolve each, then merge
+  const strategies = profile.languages
+    .map(lang => getStrategy(lang))
+    .filter((s): s is SamplingStrategy => s !== null);
+
+  if (strategies.length === 0) {
     throw new AnalysisError(
-      `No sampling strategy for language: ${profile.language ?? 'unknown'}`,
+      `No sampling strategy for languages: ${profile.languages.join(', ') || 'none detected'}`,
       'no_entry_point',
       'Supported: Python, TypeScript, Go, Rust',
     );
   }
-  const strategy = await resolveStrategy(
-    dir,
-    baseStrategy,
-    profile.framework,
-    profile.scripts,
+
+  const resolved = await Promise.all(
+    strategies.map(s => resolveStrategy(dir, s, profile.framework, profile.scripts)),
   );
+  const strategy = mergeStrategies(resolved);
 
   // 3. Build include patterns from enriched strategy
   const include = [
