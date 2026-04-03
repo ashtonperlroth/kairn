@@ -151,17 +151,13 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
     Object.values(iter.taskResults).some(s => s.variance),
   );
 
-  if (hasVariance) {
-    lines.push('| Iter | Score | Mutations | Status |');
-    lines.push('|------|-------|-----------|--------|');
-  } else {
-    lines.push('| Iter | Score | Mutations | Status |');
-    lines.push('|------|-------|-----------|--------|');
-  }
+  lines.push('| Iter | Score | Mutations | Mode | Status |');
+  lines.push('|------|-------|-----------|------|--------|');
   for (const iter of iterations) {
     const mutations = iter.proposal?.mutations.length ?? 0;
     const mutStr = mutations > 0 ? mutations.toString() : '-';
     const status = iterationStatus(iter, bestIter.iteration);
+    const mode = iter.source ?? 'reactive';
     let scoreStr = `${iter.score.toFixed(1)}%`;
     if (hasVariance) {
       const stddevs = Object.values(iter.taskResults)
@@ -172,7 +168,7 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
         scoreStr = `${iter.score.toFixed(1)}% ±${avgStddev.toFixed(1)}`;
       }
     }
-    lines.push(`| ${iter.iteration} | ${scoreStr} | ${mutStr} | ${status} |`);
+    lines.push(`| ${iter.iteration} | ${scoreStr} | ${mutStr} | ${mode} | ${status} |`);
   }
   lines.push('');
 
@@ -230,6 +226,17 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
     }
   }
 
+  // Architect iterations summary
+  const architectIterations = iterations.filter(iter => iter.source === 'architect');
+  if (architectIterations.length > 0) {
+    lines.push('## Architect Iterations');
+    lines.push('');
+    for (const iter of architectIterations) {
+      lines.push(`- Iteration ${iter.iteration}: architect (score: ${iter.score.toFixed(1)})`);
+    }
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -271,6 +278,7 @@ export async function generateJsonReport(workspacePath: string): Promise<Evoluti
         ...(avgStddev !== undefined ? { stddev: avgStddev } : {}),
         mutationCount: iter.proposal?.mutations.length ?? 0,
         status: iterationStatus(iter, bestIter.iteration),
+        mode: iter.source ?? 'reactive',
       };
     }),
     leaderboard,

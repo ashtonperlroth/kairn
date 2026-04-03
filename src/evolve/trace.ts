@@ -141,10 +141,14 @@ export async function writeIterationLog(
   const iterDir = path.join(workspacePath, 'iterations', log.iteration.toString());
   await fs.mkdir(iterDir, { recursive: true });
 
-  // Write scores
+  // Write scores (include source field for architect/reactive tracking)
   await fs.writeFile(
     path.join(iterDir, 'scores.json'),
-    JSON.stringify({ score: log.score, taskResults: log.taskResults }, null, 2),
+    JSON.stringify({
+      score: log.score,
+      taskResults: log.taskResults,
+      ...(log.source ? { source: log.source } : {}),
+    }, null, 2),
     'utf-8',
   );
 
@@ -183,7 +187,11 @@ export async function loadIterationLog(
   const reasoning = await fs.readFile(path.join(iterDir, 'proposer_reasoning.md'), 'utf-8').catch(() => '');
   const diffPatch = await fs.readFile(path.join(iterDir, 'mutation_diff.patch'), 'utf-8').catch(() => '');
 
-  const scoresData = JSON.parse(scoresStr) as { score?: number; taskResults?: Record<string, Score> };
+  const scoresData = JSON.parse(scoresStr) as {
+    score?: number;
+    taskResults?: Record<string, Score>;
+    source?: 'reactive' | 'architect';
+  };
 
   const proposal: Proposal | null = reasoning
     ? { reasoning, mutations: [], expectedImpact: {} }
@@ -196,5 +204,6 @@ export async function loadIterationLog(
     proposal,
     diffPatch: diffPatch || null,
     timestamp: '',
+    ...(scoresData.source ? { source: scoresData.source } : {}),
   };
 }

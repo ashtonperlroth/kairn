@@ -225,8 +225,11 @@ evolveCommand
   .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '0')
   .option('--sampling <strategy>', 'Task sampling strategy: thompson or uniform', 'thompson')
   .option('--kl-lambda <n>', 'KL regularization strength (0 = disabled)', '0.1')
+  .option('--architect-every <n>', 'Run architect proposer every N iterations (default: 3)')
+  .option('--schedule <type>', 'Architect schedule: explore-exploit, constant, or adaptive (default: explore-exploit)')
+  .option('--architect-model <model>', 'Model for architect proposer (defaults to proposer model)')
   .option('-i, --interactive', 'Configure evolution settings interactively')
-  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string; sampling?: string; klLambda?: string; interactive?: boolean }) => {
+  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string; sampling?: string; klLambda?: string; architectEvery?: string; schedule?: string; architectModel?: string; interactive?: boolean }) => {
     try {
       const projectRoot = process.cwd();
       const workspace = path.join(projectRoot, '.kairn-evolve');
@@ -313,7 +316,9 @@ evolveCommand
           options.parallel !== '1' || options.maxMutations !== '3' ||
           options.pruneThreshold !== '95' || options.maxTaskDrop !== '20' ||
           options.principal || options.evalSample !== '0' ||
-          options.sampling !== 'thompson' || options.klLambda !== '0.1';
+          options.sampling !== 'thompson' || options.klLambda !== '0.1' ||
+          options.architectEvery !== undefined || options.schedule !== undefined ||
+          options.architectModel !== undefined;
 
         if (!hasExplicitFlags) {
           // Interactive configuration menu
@@ -437,6 +442,28 @@ evolveCommand
             process.exit(1);
           }
           evolveConfig.klLambda = klLambda;
+
+          if (options.architectEvery) {
+            const architectEvery = parseInt(options.architectEvery, 10);
+            if (isNaN(architectEvery) || architectEvery < 1) {
+              console.log(ui.error('--architect-every must be a positive integer'));
+              process.exit(1);
+            }
+            evolveConfig.architectEvery = architectEvery;
+          }
+
+          if (options.schedule) {
+            const validSchedules = ['explore-exploit', 'constant', 'adaptive'] as const;
+            if (!validSchedules.includes(options.schedule as typeof validSchedules[number])) {
+              console.log(chalk.red(`  Invalid schedule: ${options.schedule}. Must be one of: ${validSchedules.join(', ')}`));
+              process.exit(1);
+            }
+            evolveConfig.schedule = options.schedule as typeof evolveConfig.schedule;
+          }
+
+          if (options.architectModel) {
+            evolveConfig.architectModel = options.architectModel;
+          }
         }
 
         // Verify baseline exists
@@ -494,6 +521,18 @@ evolveCommand
               console.log(`    ${taskStatus}  ${event.taskId ?? 'unknown'} ${chalk.dim(`(${taskScore.toFixed(0)}%)`)}`);
               break;
             }
+            case 'architect-start':
+              console.log(chalk.magenta('  Architect proposer analyzing structure...'));
+              break;
+            case 'architect-staging':
+              console.log(chalk.dim('  Staging: evaluating architect proposal on full task suite...'));
+              break;
+            case 'architect-accepted':
+              console.log(chalk.green(`  Architect proposal ACCEPTED (${event.score?.toFixed(1)}%)`));
+              break;
+            case 'architect-rejected':
+              console.log(chalk.yellow(`  Architect proposal REJECTED (${event.score?.toFixed(1)}% < best)`));
+              break;
             case 'complete':
               break; // Summary printed below
           }
@@ -852,6 +891,85 @@ evolveCommand
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(ui.error(msg));
+      process.exit(1);
+    }
+  });
+
+// --- kairn evolve research ---
+evolveCommand
+  .command('research')
+  .description('Run cross-repo research to discover convergent evolution patterns')
+  .requiredOption('--repos <urls>', 'GitHub repo URLs (comma-separated)')
+  .option('--iterations <n>', 'Iterations per repo', '10')
+  .option('--threshold <n>', 'Convergence threshold (0.0-1.0)', '0.5')
+  .option('--output <path>', 'Write research report to file')
+  .action(async (options: { repos: string; iterations?: string; threshold?: string; output?: string }) => {
+    try {
+      const config = await loadConfig();
+      if (!config) {
+        console.log(chalk.red('  No config found. Run `kairn init` first.'));
+        process.exit(1);
+      }
+
+      const repos = options.repos.split(',').map(r => r.trim());
+      const iterationsPerRepo = parseInt(options.iterations ?? '10', 10);
+      const convergenceThreshold = parseFloat(options.threshold ?? '0.5');
+
+      if (isNaN(iterationsPerRepo) || iterationsPerRepo < 1) {
+        console.log(ui.error('--iterations must be a positive integer'));
+        process.exit(1);
+      }
+      if (isNaN(convergenceThreshold) || convergenceThreshold < 0 || convergenceThreshold > 1) {
+        console.log(ui.error('--threshold must be between 0.0 and 1.0'));
+        process.exit(1);
+      }
+
+      console.log(chalk.cyan(`\n  Starting research across ${repos.length} repositories\n`));
+
+      const { runResearch, formatResearchReport } = await import('../evolve/research.js');
+
+      const researchConfig = {
+        repos,
+        iterationsPerRepo,
+        convergenceThreshold,
+        outputPath: options.output,
+      };
+
+      const evolveConfig = { ...DEFAULT_CONFIG };
+
+      const report = await runResearch(
+        researchConfig,
+        config,
+        evolveConfig,
+        (event) => {
+          switch (event.type) {
+            case 'repo-start':
+              console.log(chalk.cyan(`  [${(event.repoIndex ?? 0) + 1}/${event.totalRepos}] ${event.message}`));
+              break;
+            case 'repo-complete':
+              console.log(chalk.dim(`  [${(event.repoIndex ?? 0) + 1}/${event.totalRepos}] ${event.message}`));
+              break;
+            case 'convergence-analysis':
+              console.log(chalk.magenta(`\n  ${event.message}`));
+              break;
+            case 'research-complete':
+              console.log(chalk.green(`\n  ${event.message}`));
+              break;
+          }
+        },
+      );
+
+      const reportText = formatResearchReport(report);
+      console.log('\n' + reportText);
+
+      if (options.output) {
+        await fs.writeFile(options.output, reportText, 'utf-8');
+        console.log(chalk.green(`\n  Report saved to ${options.output}`));
+      }
+
+      console.log(chalk.cyan(`\n  Summary: ${report.universal.length} universal, ${Object.values(report.languageSpecific).flat().length} language-specific, ${report.failed.length} failed patterns\n`));
+    } catch (err) {
+      console.log(chalk.red(`\n  Research failed: ${err instanceof Error ? err.message : String(err)}\n`));
       process.exit(1);
     }
   });

@@ -34,6 +34,7 @@ async function createWorkspace(opts: {
       reasoning: string;
       mutations: Array<{ file: string; action: string; newText: string; rationale: string }>;
     };
+    source?: 'reactive' | 'architect';
   }>;
   tasks: Array<{ id: string; template: string; description: string }>;
 }): Promise<string> {
@@ -65,7 +66,11 @@ async function createWorkspace(opts: {
 
     await fs.writeFile(
       path.join(iterDir, 'scores.json'),
-      JSON.stringify({ score: iter.score, taskResults: iter.taskResults }, null, 2),
+      JSON.stringify({
+        score: iter.score,
+        taskResults: iter.taskResults,
+        ...(iter.source ? { source: iter.source } : {}),
+      }, null, 2),
       'utf-8',
     );
 
@@ -129,7 +134,7 @@ describe('generateMarkdownReport', () => {
     const md = await generateMarkdownReport(workspace);
 
     expect(md).toContain('## Iterations');
-    expect(md).toContain('| Iter | Score | Mutations | Status |');
+    expect(md).toContain('| Iter | Score | Mutations | Mode | Status |');
     expect(md).toContain('baseline');
   });
 
@@ -403,5 +408,103 @@ describe('generateMarkdownReport with variance', () => {
 
     const md = await generateMarkdownReport(workspace);
     expect(md).not.toContain('±');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mode column and architect iteration tracking
+// ---------------------------------------------------------------------------
+
+describe('generateMarkdownReport with mode column', () => {
+  it('includes Mode column in iteration table header', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).toContain('| Iter | Score | Mutations | Mode | Status |');
+  });
+
+  it('shows reactive mode for iterations without source', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).toContain('| reactive |');
+  });
+
+  it('shows architect mode for architect iterations', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+        { iteration: 1, score: 70, taskResults: { 'task-1': { pass: true, score: 70 } }, source: 'architect' },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).toContain('| architect |');
+  });
+
+  it('includes Architect Iterations section when architect iterations exist', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+        { iteration: 1, score: 78.5, taskResults: { 'task-1': { pass: true, score: 78.5 } }, source: 'architect' },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).toContain('## Architect Iterations');
+    expect(md).toContain('Iteration 1: architect (score: 78.5)');
+  });
+
+  it('omits Architect Iterations section when no architect iterations exist', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+        { iteration: 1, score: 70, taskResults: { 'task-1': { pass: true, score: 70 } }, source: 'reactive' },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    expect(md).not.toContain('## Architect Iterations');
+  });
+});
+
+describe('generateJsonReport with mode field', () => {
+  it('includes mode field in iterations array', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+        { iteration: 1, score: 70, taskResults: { 'task-1': { pass: true, score: 70 } }, source: 'architect' },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const report = await generateJsonReport(workspace);
+    expect(report.iterations[0].mode).toBe('reactive');
+    expect(report.iterations[1].mode).toBe('architect');
+  });
+
+  it('defaults mode to reactive when source is not set', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const report = await generateJsonReport(workspace);
+    expect(report.iterations[0].mode).toBe('reactive');
   });
 });
