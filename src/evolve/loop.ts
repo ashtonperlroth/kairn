@@ -5,6 +5,8 @@ import { propose } from './proposer.js';
 import { applyMutations } from './mutator.js';
 import { writeIterationLog } from './trace.js';
 import { copyDir } from './baseline.js';
+import { proposeArchitecture } from './architect.js';
+import { shouldUseArchitect, computeArchitectMutationBudget } from './schedule.js';
 import { initBeliefs, sampleThompson, updateBeliefs, loadBeliefs, saveBeliefs } from './sampling.js';
 import { measureComplexity, measureComplexityFromIR, computeComplexityCost, applyKLPenalty, computeDiffRatio } from './regularization.js';
 import { parseHarness } from '../ir/parser.js';
@@ -323,6 +325,7 @@ export async function evolve(
         timestamp: new Date().toISOString(),
         rawScore: useKL ? rawAggregate : undefined,
         complexityCost: iterComplexityCost,
+        source: 'reactive',
       };
       await writeIterationLog(workspacePath, rollbackLog);
       history.push(rollbackLog);
@@ -395,6 +398,7 @@ export async function evolve(
         timestamp: new Date().toISOString(),
         rawScore: useKL ? rawAggregate : undefined,
         complexityCost: iterComplexityCost,
+        source: 'reactive',
       };
       await writeIterationLog(workspacePath, perfectLog);
       history.push(perfectLog);
@@ -412,12 +416,149 @@ export async function evolve(
         timestamp: new Date().toISOString(),
         rawScore: useKL ? rawAggregate : undefined,
         complexityCost: iterComplexityCost,
+        source: 'reactive',
       };
       await writeIterationLog(workspacePath, finalLog);
       history.push(finalLog);
       break;
     }
 
+    // Check if this should be an architect iteration
+    const isArchitectIter = shouldUseArchitect(
+      iter,
+      evolveConfig.maxIterations,
+      evolveConfig.schedule,
+      evolveConfig.architectEvery,
+      history.slice(-3).map(h => h.score),
+    );
+
+    if (isArchitectIter) {
+      // ─── ARCHITECT PATH ───
+      onProgress?.({ type: 'architect-start', iteration: iter });
+
+      let architectProposal;
+      try {
+        architectProposal = await proposeArchitecture(
+          iter,
+          workspacePath,
+          harnessPath,
+          history,
+          tasks,
+          kairnConfig,
+          evolveConfig.architectModel,
+        );
+        // Enforce architect mutation budget
+        const architectCap = computeArchitectMutationBudget(iter, evolveConfig.maxIterations);
+        if (architectProposal.mutations.length > architectCap) {
+          architectProposal = {
+            ...architectProposal,
+            mutations: architectProposal.mutations.slice(0, architectCap),
+          };
+        }
+      } catch (err) {
+        // Architect failed — fall back: copy current harness forward unchanged
+        const errMsg = err instanceof Error ? err.message : String(err);
+        onProgress?.({
+          type: 'proposer-error',
+          iteration: iter,
+          message: `Architect failed: ${errMsg}. Falling back to reactive proposer.`,
+        });
+        const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
+        await copyDir(harnessPath, path.join(nextIterDir, 'harness'));
+        const skipLog: IterationLog = {
+          iteration: iter,
+          score: aggregate,
+          taskResults: results,
+          proposal: null,
+          diffPatch: null,
+          timestamp: new Date().toISOString(),
+          rawScore: useKL ? rawAggregate : undefined,
+          complexityCost: iterComplexityCost,
+          source: 'architect',
+        };
+        await writeIterationLog(workspacePath, skipLog);
+        history.push(skipLog);
+        continue;
+      }
+
+      // Apply to STAGING (temp copy, not next iteration)
+      onProgress?.({ type: 'architect-staging', iteration: iter });
+      const stagingDir = path.join(workspacePath, 'staging', iter.toString());
+      let stagingHarnessPath: string;
+      try {
+        const stagingResult = await applyMutations(
+          harnessPath,
+          stagingDir,
+          architectProposal.mutations,
+        );
+        stagingHarnessPath = stagingResult.newHarnessPath;
+      } catch {
+        // Staging application failed — reject
+        onProgress?.({ type: 'architect-rejected', iteration: iter, score: 0, message: 'Failed to apply mutations to staging' });
+        const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
+        await copyDir(harnessPath, path.join(nextIterDir, 'harness'));
+        const rejectLog: IterationLog = {
+          iteration: iter,
+          score: aggregate,
+          taskResults: results,
+          proposal: architectProposal,
+          diffPatch: null,
+          timestamp: new Date().toISOString(),
+          rawScore: useKL ? rawAggregate : undefined,
+          complexityCost: iterComplexityCost,
+          source: 'architect',
+        };
+        await writeIterationLog(workspacePath, rejectLog);
+        history.push(rejectLog);
+        await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+        continue;
+      }
+
+      // Full-suite evaluation on staging (NO pruning, NO sampling)
+      const { results: stagingResults, aggregate: stagingScore } = await evaluateAll(
+        tasks,  // ALL tasks, not sampled
+        stagingHarnessPath,
+        workspacePath,
+        iter,
+        kairnConfig,
+        onProgress,
+        evolveConfig.runsPerTask,
+        evolveConfig.parallelTasks,
+      );
+
+      if (stagingScore >= bestScore) {
+        // ACCEPT: use staging as next iteration
+        onProgress?.({ type: 'architect-accepted', iteration: iter, score: stagingScore });
+        const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
+        await copyDir(stagingHarnessPath, path.join(nextIterDir, 'harness'));
+      } else {
+        // REJECT: keep current best
+        onProgress?.({ type: 'architect-rejected', iteration: iter, score: stagingScore });
+        const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
+        await copyDir(harnessPath, path.join(nextIterDir, 'harness'));
+      }
+
+      // Log architect iteration
+      const architectLog: IterationLog = {
+        iteration: iter,
+        score: stagingScore >= bestScore ? stagingScore : aggregate,
+        taskResults: stagingScore >= bestScore ? stagingResults : results,
+        proposal: architectProposal,
+        diffPatch: null,
+        timestamp: new Date().toISOString(),
+        rawScore: useKL ? rawAggregate : undefined,
+        complexityCost: iterComplexityCost,
+        source: 'architect',
+      };
+      await writeIterationLog(workspacePath, architectLog);
+      history.push(architectLog);
+
+      // Clean up staging
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+      continue;  // Skip reactive proposer path
+    }
+
+    // ─── REACTIVE PATH ───
     onProgress?.({ type: 'proposing', iteration: iter });
     let proposal;
     try {
@@ -461,6 +602,7 @@ export async function evolve(
         timestamp: new Date().toISOString(),
         rawScore: useKL ? rawAggregate : undefined,
         complexityCost: iterComplexityCost,
+        source: 'reactive',
       };
       await writeIterationLog(workspacePath, skipLog);
       history.push(skipLog);
@@ -511,6 +653,7 @@ export async function evolve(
       timestamp: new Date().toISOString(),
       rawScore: useKL ? rawAggregate : undefined,
       complexityCost: iterComplexityCost,
+      source: 'reactive',
     };
     await writeIterationLog(workspacePath, iterLog);
     history.push(iterLog);
@@ -581,6 +724,15 @@ export async function evolve(
     await saveRunSummary(workspacePath, summary);
   } catch {
     // Memory save is non-critical — don't fail the run
+  }
+
+  // Extract patterns from this run and save to knowledge base
+  try {
+    const { extractAndSavePatterns } = await import('./knowledge.js');
+    const projectName = path.basename(path.resolve(workspacePath, '..'));
+    await extractAndSavePatterns(history, projectName, null);
+  } catch {
+    // Knowledge save is non-critical — don't fail the run
   }
 
   onProgress?.({

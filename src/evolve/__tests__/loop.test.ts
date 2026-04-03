@@ -25,11 +25,22 @@ vi.mock('../baseline.js', () => ({
   copyDir: vi.fn(),
 }));
 
+vi.mock('../architect.js', () => ({
+  proposeArchitecture: vi.fn(),
+}));
+
+vi.mock('../schedule.js', () => ({
+  shouldUseArchitect: vi.fn().mockReturnValue(false),
+  computeArchitectMutationBudget: vi.fn().mockReturnValue(10),
+}));
+
 import { evaluateAll } from '../runner.js';
 import { propose } from '../proposer.js';
 import { applyMutations } from '../mutator.js';
 import { writeIterationLog } from '../trace.js';
 import { copyDir } from '../baseline.js';
+import { proposeArchitecture } from '../architect.js';
+import { shouldUseArchitect, computeArchitectMutationBudget } from '../schedule.js';
 
 function makeKairnConfig(overrides: Partial<KairnConfig> = {}): KairnConfig {
   return {
@@ -98,6 +109,9 @@ const mockPropose = vi.mocked(propose);
 const mockApplyMutations = vi.mocked(applyMutations);
 const mockWriteIterationLog = vi.mocked(writeIterationLog);
 const mockCopyDir = vi.mocked(copyDir);
+const mockProposeArchitecture = vi.mocked(proposeArchitecture);
+const mockShouldUseArchitect = vi.mocked(shouldUseArchitect);
+const mockComputeArchitectMutationBudget = vi.mocked(computeArchitectMutationBudget);
 
 let tempDir: string;
 
@@ -1251,5 +1265,541 @@ describe('evolve', () => {
     expect(result.bestScore).toBe(90);
     expect(result.bestIteration).toBe(1);
     expect(result.iterations).toHaveLength(3);
+  });
+
+  describe('architect staging gate', () => {
+    it('uses architect proposer when shouldUseArchitect returns true', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+      const events: LoopProgressEvent[] = [];
+
+      // shouldUseArchitect: true on iteration 1
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(10);
+
+      // Iteration 0: score 60 — normal reactive path
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 60 } },
+        aggregate: 60,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect iteration
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 65 } },
+        aggregate: 65,
+      });
+      mockProposeArchitecture.mockResolvedValueOnce({
+        reasoning: 'Structural improvement',
+        mutations: [
+          { file: 'CLAUDE.md', action: 'create_file' as const, newText: '# New structure', rationale: 'Restructure' },
+        ],
+        expectedImpact: { 'task-1': '+20%' },
+        structural: true,
+        source: 'architect' as const,
+      });
+      // Staging application
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'staging', '1', 'harness'),
+        diffPatch: 'staging-diff',
+      });
+      // Staging evaluation — scores higher, should be accepted
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      });
+
+      // Iteration 2: back to reactive (last iteration)
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 85 } },
+        aggregate: 85,
+      });
+
+      const result = await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+        (event) => events.push(event),
+      );
+
+      // proposeArchitecture should have been called once (iteration 1)
+      expect(mockProposeArchitecture).toHaveBeenCalledTimes(1);
+      // Architect-specific events should have been emitted
+      const architectEvents = events.filter(e =>
+        e.type === 'architect-start' ||
+        e.type === 'architect-staging' ||
+        e.type === 'architect-accepted' ||
+        e.type === 'architect-rejected'
+      );
+      expect(architectEvents.length).toBeGreaterThanOrEqual(2);
+      expect(architectEvents.some(e => e.type === 'architect-start')).toBe(true);
+      expect(architectEvents.some(e => e.type === 'architect-accepted')).toBe(true);
+    });
+
+    it('rejects architect proposal when staging score is lower than best', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+      const events: LoopProgressEvent[] = [];
+
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(10);
+
+      // Iteration 0: score 70
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 70 } },
+        aggregate: 70,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect iteration
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 75 } },
+        aggregate: 75,
+      });
+      mockProposeArchitecture.mockResolvedValueOnce({
+        reasoning: 'Bold restructure',
+        mutations: [
+          { file: 'CLAUDE.md', action: 'replace' as const, oldText: 'old', newText: 'new', rationale: 'Change' },
+        ],
+        expectedImpact: { 'task-1': '+30%' },
+        structural: true,
+        source: 'architect' as const,
+      });
+      // Staging application
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'staging', '1', 'harness'),
+        diffPatch: 'staging-diff',
+      });
+      // Staging evaluation — scores LOWER than best (75), should be rejected
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 50 } },
+        aggregate: 50,
+      });
+
+      // Iteration 2: back to reactive (last iteration) — harness should be from iter 1 (best)
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 78 } },
+        aggregate: 78,
+      });
+
+      const result = await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+        (event) => events.push(event),
+      );
+
+      const rejectedEvents = events.filter(e => e.type === 'architect-rejected');
+      expect(rejectedEvents).toHaveLength(1);
+      expect(rejectedEvents[0].iteration).toBe(1);
+      // copyDir called to copy current best harness forward (not the staging one)
+      expect(mockCopyDir).toHaveBeenCalled();
+    });
+
+    it('falls back to copying harness when architect proposer throws', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+      const events: LoopProgressEvent[] = [];
+
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(10);
+
+      // Iteration 0: score 60
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 60 } },
+        aggregate: 60,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect iteration — but architect throws
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 65 } },
+        aggregate: 65,
+      });
+      mockProposeArchitecture.mockRejectedValueOnce(new Error('LLM timeout'));
+
+      // Iteration 2 (last): reactive
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 70 } },
+        aggregate: 70,
+      });
+
+      const result = await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+        (event) => events.push(event),
+      );
+
+      // Should have emitted proposer-error with architect context
+      const errorEvents = events.filter(e => e.type === 'proposer-error');
+      expect(errorEvents).toHaveLength(1);
+      expect(errorEvents[0].message).toContain('Architect failed');
+      // copyDir should have been called to copy harness forward
+      expect(mockCopyDir).toHaveBeenCalled();
+      // Loop should continue running
+      expect(result.iterations.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('enforces architect mutation budget from computeArchitectMutationBudget', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(2); // Only allow 2
+
+      // Iteration 0: score 60
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 60 } },
+        aggregate: 60,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect proposes 5 mutations but budget is 2
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 65 } },
+        aggregate: 65,
+      });
+      mockProposeArchitecture.mockResolvedValueOnce({
+        reasoning: 'Many structural changes',
+        mutations: [
+          { file: 'a.md', action: 'create_file' as const, newText: 'a', rationale: '1' },
+          { file: 'b.md', action: 'create_file' as const, newText: 'b', rationale: '2' },
+          { file: 'c.md', action: 'create_file' as const, newText: 'c', rationale: '3' },
+          { file: 'd.md', action: 'create_file' as const, newText: 'd', rationale: '4' },
+          { file: 'e.md', action: 'create_file' as const, newText: 'e', rationale: '5' },
+        ],
+        expectedImpact: {},
+        structural: true,
+        source: 'architect' as const,
+      });
+      // Staging: only 2 mutations should be applied
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'staging', '1', 'harness'),
+        diffPatch: 'staging-diff',
+      });
+      // Staging eval — accept
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      });
+
+      // Iteration 2 (last)
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      });
+
+      await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+      );
+
+      // applyMutations for staging should have received only 2 mutations (capped from 5)
+      // First call is iter 0 reactive, second is architect staging
+      const stagingCallMutations = mockApplyMutations.mock.calls[1][2];
+      expect(stagingCallMutations).toHaveLength(2);
+    });
+
+    it('logs architect iteration with source: architect', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(10);
+
+      // Iteration 0: score 60
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 60 } },
+        aggregate: 60,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect — accepted
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 65 } },
+        aggregate: 65,
+      });
+      mockProposeArchitecture.mockResolvedValueOnce({
+        reasoning: 'Restructure',
+        mutations: [
+          { file: 'CLAUDE.md', action: 'create_file' as const, newText: 'new', rationale: 'test' },
+        ],
+        expectedImpact: {},
+        structural: true,
+        source: 'architect' as const,
+      });
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'staging', '1', 'harness'),
+        diffPatch: 'staging-diff',
+      });
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      });
+
+      // Iteration 2 (last)
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 82 } },
+        aggregate: 82,
+      });
+
+      await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+      );
+
+      // Find the architect iteration log (iteration 1)
+      const architectLogCall = mockWriteIterationLog.mock.calls.find(
+        (call) => (call[1] as IterationLog).iteration === 1
+      );
+      expect(architectLogCall).toBeDefined();
+      const architectLog = architectLogCall![1] as IterationLog;
+      expect(architectLog.source).toBe('architect');
+    });
+
+    it('does not call reactive propose when architect path is taken', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(10);
+
+      // Iteration 0: score 60 — reactive
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 60 } },
+        aggregate: 60,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect — accepted
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 65 } },
+        aggregate: 65,
+      });
+      mockProposeArchitecture.mockResolvedValueOnce({
+        reasoning: 'Restructure',
+        mutations: [
+          { file: 'CLAUDE.md', action: 'create_file' as const, newText: 'new', rationale: 'test' },
+        ],
+        expectedImpact: {},
+        structural: true,
+        source: 'architect' as const,
+      });
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'staging', '1', 'harness'),
+        diffPatch: 'staging-diff',
+      });
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      });
+
+      // Iteration 2 (last): reactive
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 82 } },
+        aggregate: 82,
+      });
+
+      await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+      );
+
+      // reactive propose should only be called once (iteration 0), NOT for iteration 1
+      expect(mockPropose).toHaveBeenCalledTimes(1);
+      expect(mockProposeArchitecture).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back when staging application fails', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+      const events: LoopProgressEvent[] = [];
+
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(10);
+
+      // Iteration 0: score 60
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 60 } },
+        aggregate: 60,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect — but staging application fails
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 65 } },
+        aggregate: 65,
+      });
+      mockProposeArchitecture.mockResolvedValueOnce({
+        reasoning: 'Restructure',
+        mutations: [
+          { file: 'CLAUDE.md', action: 'create_file' as const, newText: 'new', rationale: 'test' },
+        ],
+        expectedImpact: {},
+        structural: true,
+        source: 'architect' as const,
+      });
+      // Staging application FAILS
+      mockApplyMutations.mockRejectedValueOnce(new Error('Staging copy failed'));
+
+      // Iteration 2 (last): reactive
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 70 } },
+        aggregate: 70,
+      });
+
+      const result = await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+        (event) => events.push(event),
+      );
+
+      // Should have emitted architect-rejected event
+      const rejectedEvents = events.filter(e => e.type === 'architect-rejected');
+      expect(rejectedEvents).toHaveLength(1);
+      expect(rejectedEvents[0].message).toContain('Failed to apply mutations');
+      // copyDir should copy harness forward
+      expect(mockCopyDir).toHaveBeenCalled();
+      // Loop should continue
+      expect(result.iterations.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('accepts architect proposal when staging score equals best score', async () => {
+      const workspace = await createWorkspace([0, 1, 2, 3]);
+      const tasks = [makeTask('task-1')];
+      const events: LoopProgressEvent[] = [];
+
+      mockShouldUseArchitect.mockImplementation((iter) => iter === 1);
+      mockComputeArchitectMutationBudget.mockReturnValue(10);
+
+      // Iteration 0: score 70
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 70 } },
+        aggregate: 70,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1: architect — staging scores EQUAL to best (70)
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 75 } },
+        aggregate: 75,
+      });
+      mockProposeArchitecture.mockResolvedValueOnce({
+        reasoning: 'Restructure',
+        mutations: [
+          { file: 'CLAUDE.md', action: 'create_file' as const, newText: 'new', rationale: 'test' },
+        ],
+        expectedImpact: {},
+        structural: true,
+        source: 'architect' as const,
+      });
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'staging', '1', 'harness'),
+        diffPatch: 'staging-diff',
+      });
+      // Staging scores >= bestScore (75 >= 75) — should ACCEPT
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 75 } },
+        aggregate: 75,
+      });
+
+      // Iteration 2 (last)
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 78 } },
+        aggregate: 78,
+      });
+
+      await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 3 }),
+        (event) => events.push(event),
+      );
+
+      // Should accept since staging score >= best
+      const acceptedEvents = events.filter(e => e.type === 'architect-accepted');
+      expect(acceptedEvents).toHaveLength(1);
+    });
+
+    it('adds source: reactive to reactive proposer logs', async () => {
+      const workspace = await createWorkspace([0, 1]);
+      const tasks = [makeTask('task-1')];
+
+      // Keep architect disabled for this test
+      mockShouldUseArchitect.mockReturnValue(false);
+
+      // Iteration 0: score 60 — reactive
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: false, score: 60 } },
+        aggregate: 60,
+      });
+      mockPropose.mockResolvedValueOnce(makeProposal());
+      mockApplyMutations.mockResolvedValueOnce({
+        newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+        diffPatch: 'diff0',
+      });
+
+      // Iteration 1 (last): score 80
+      mockEvaluateAll.mockResolvedValueOnce({
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      });
+
+      await evolve(
+        workspace,
+        tasks,
+        makeKairnConfig(),
+        makeEvolveConfig({ maxIterations: 2 }),
+      );
+
+      // The reactive iteration log should have source: 'reactive'
+      const iterLog0 = mockWriteIterationLog.mock.calls[0][1] as IterationLog;
+      expect(iterLog0.source).toBe('reactive');
+    });
   });
 });
