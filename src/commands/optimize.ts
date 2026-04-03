@@ -20,6 +20,9 @@ import type { ProjectProfile } from "../scanner/scan.js";
 import type { EnvironmentSpec } from "../types.js";
 import { ui } from "../ui.js";
 import { printCompactBanner } from "../logo.js";
+import { analyzeProject } from "../analyzer/analyze.js";
+import { AnalysisError } from "../analyzer/types.js";
+import type { ProjectAnalysis } from "../analyzer/types.js";
 
 interface FileDiff {
   path: string;
@@ -123,7 +126,19 @@ function buildAuditSummary(profile: ProjectProfile): string {
   return lines.join("\n");
 }
 
-function buildOptimizeIntent(profile: ProjectProfile): string {
+/**
+ * Build the compilation intent string from a scanned profile and optional semantic analysis.
+ *
+ * Combines project metadata, harness audit data, and (when available) deep
+ * semantic analysis of the source code into a single intent string that the
+ * compilation agents use to generate an optimized environment.
+ *
+ * @param profile - Scanned project profile from the scanner.
+ * @param analysis - Optional semantic analysis from the analyzer. When provided,
+ *   enriches the intent with purpose, modules, workflows, dataflow, and config keys.
+ * @returns The assembled intent string for the compilation pipeline.
+ */
+export function buildOptimizeIntent(profile: ProjectProfile, analysis?: ProjectAnalysis | null): string {
   const parts: string[] = [];
 
   parts.push("## Project Profile (scanned from actual codebase)\n");
@@ -166,6 +181,45 @@ function buildOptimizeIntent(profile: ProjectProfile): string {
     parts.push("The environment should match the actual tech stack, dependencies, and workflows.");
   }
 
+  if (analysis) {
+    parts.push(`\n## Semantic Analysis (from source code)\n`);
+    parts.push(`Purpose: ${analysis.purpose}`);
+    parts.push(`Domain: ${analysis.domain}`);
+    parts.push(`Architecture: ${analysis.architecture_style}`);
+    parts.push(`Deployment: ${analysis.deployment_model}`);
+
+    if (analysis.key_modules.length > 0) {
+      parts.push(`\n### Key Modules`);
+      for (const mod of analysis.key_modules) {
+        parts.push(`- **${mod.name}** (${mod.path}): ${mod.description}`);
+        parts.push(`  Owns: ${mod.responsibilities.join(", ")}`);
+      }
+    }
+
+    if (analysis.workflows.length > 0) {
+      parts.push(`\n### Core Workflows`);
+      for (const wf of analysis.workflows) {
+        parts.push(`- **${wf.name}**: ${wf.description}`);
+        parts.push(`  Trigger: ${wf.trigger}`);
+        parts.push(`  Steps: ${wf.steps.join(" \u2192 ")}`);
+      }
+    }
+
+    if (analysis.dataflow.length > 0) {
+      parts.push(`\n### Dataflow`);
+      for (const edge of analysis.dataflow) {
+        parts.push(`- ${edge.from} \u2192 ${edge.to}: ${edge.data}`);
+      }
+    }
+
+    if (analysis.config_keys.length > 0) {
+      parts.push(`\n### Configuration`);
+      for (const key of analysis.config_keys) {
+        parts.push(`- \`${key.name}\`: ${key.purpose}`);
+      }
+    }
+  }
+
   return parts.join("\n");
 }
 
@@ -201,6 +255,27 @@ export const optimizeCommand = new Command("optimize")
     if (profile.hasDocker) console.log(ui.kv("Docker:", "yes"));
     if (profile.hasCi) console.log(ui.kv("CI/CD:", "yes"));
     if (profile.envKeys.length > 0) console.log(ui.kv("Env keys:", profile.envKeys.join(", ")));
+
+    // 2a. Semantic analysis
+    console.log(ui.section("Codebase Analysis"));
+    const analysisSpinner = ora({ text: "Analyzing source code...", indent: 2 }).start();
+    let analysis: ProjectAnalysis | null = null;
+    try {
+      analysis = await analyzeProject(targetDir, profile, config);
+      analysisSpinner.succeed("Codebase analyzed");
+      console.log(ui.kv("Purpose:", analysis.purpose));
+      console.log(ui.kv("Domain:", analysis.domain));
+      console.log(ui.kv("Modules:", analysis.key_modules.map(m => m.name).join(", ") || "none detected"));
+      console.log(ui.kv("Workflows:", analysis.workflows.map(w => w.name).join(", ") || "none detected"));
+    } catch (err) {
+      if (err instanceof AnalysisError) {
+        analysisSpinner.fail("Analysis failed");
+        console.log(ui.errorBox("KAIRN — Analysis Error", `${err.message}\n\nRun \`kairn analyze\` for details.`));
+        process.exit(1);
+      }
+      // Non-analysis errors: warn but continue without analysis
+      analysisSpinner.warn("Analysis skipped (non-critical error)");
+    }
 
     // 3. Audit existing harness
     if (profile.hasClaudeDir) {
@@ -268,7 +343,7 @@ export const optimizeCommand = new Command("optimize")
     }
 
     // 4. Compile with scanned profile
-    const intent = buildOptimizeIntent(profile);
+    const intent = buildOptimizeIntent(profile, analysis);
     let spec;
     const spinner = ora({ text: "Compiling optimized environment...", indent: 2 }).start();
     try {
