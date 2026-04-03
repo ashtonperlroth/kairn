@@ -11,10 +11,7 @@ import { executePlan } from "./batch.js";
 import { linkHarness } from "./linker.js";
 import { dispatchAgent } from "./agents/dispatch.js";
 import { renderClaudeMd } from "../ir/renderer.js";
-import { generateIntentPatterns } from "../intent/patterns.js";
-import { compileIntentPrompt } from "../intent/prompt-template.js";
-import { renderIntentRouter } from "../intent/router-template.js";
-import { renderIntentLearner } from "../intent/learner-template.js";
+import type { IntentPattern } from "../intent/types.js";
 import type { EnvironmentSpec, RegistryTool, Clarification, SkeletonSpec, CompileProgress } from "../types.js";
 import type { HarnessIR } from "../ir/types.js";
 import type { AgentTask, AgentResult } from "./agents/types.js";
@@ -54,13 +51,53 @@ function parseSkeletonResponse(text: string): SkeletonSpec {
   }
 }
 
-function buildSettings(skeleton: SkeletonSpec, registry: RegistryTool[]): Record<string, unknown> {
+/**
+ * Build settings.json content (permissions + hooks) derived from the skeleton's tech stack.
+ *
+ * Permissions are dynamically derived from `skeleton.outline.tech_stack`:
+ * - Read/Write/Edit are always allowed
+ * - Language-specific CLI tools are added based on detected languages
+ * - Falls back to npm/npx if no language-specific stack is recognized
+ *
+ * Hooks include:
+ * - PreToolUse: destructive command blocker (always)
+ * - PostCompact: context restore prompt (always)
+ * - PostToolUse: formatter hooks (prettier for JS/TS, ruff for Python)
+ */
+export function buildSettings(skeleton: SkeletonSpec, registry: RegistryTool[]): Record<string, unknown> {
   const _selectedTools = skeleton.tools
     .map((t) => registry.find((r) => r.id === t.tool_id))
     .filter(Boolean);
 
-  // Build permissions based on workflow type
-  const allow = ["Read", "Write", "Edit", "Bash(npm run *)", "Bash(npx *)"];
+  const techStack = skeleton.outline.tech_stack.map((t) => t.toLowerCase());
+
+  // Build permissions dynamically from tech stack
+  const allow: string[] = ["Read", "Write", "Edit"];
+
+  if (techStack.some((t) => t.includes("python"))) {
+    allow.push("Bash(python *)", "Bash(pip *)", "Bash(pytest *)", "Bash(uv *)");
+  }
+  if (techStack.some((t) => t.includes("typescript") || t.includes("javascript") || t.includes("node"))) {
+    allow.push("Bash(npm run *)", "Bash(npx *)");
+  }
+  if (techStack.some((t) => t.includes("rust"))) {
+    allow.push("Bash(cargo *)");
+  }
+  if (techStack.some((t) => t.includes("go") || t.includes("golang"))) {
+    allow.push("Bash(go *)");
+  }
+  if (techStack.some((t) => t.includes("ruby"))) {
+    allow.push("Bash(bundle *)", "Bash(rake *)");
+  }
+  if (techStack.some((t) => t.includes("docker"))) {
+    allow.push("Bash(docker *)", "Bash(docker compose *)");
+  }
+
+  // Fallback: if no language-specific permissions matched, add a safe default
+  if (allow.length === 3) {
+    allow.push("Bash(npm run *)", "Bash(npx *)");
+  }
+
   const deny = [
     "Bash(rm -rf *)",
     "Bash(curl * | sh)",
@@ -97,23 +134,36 @@ function buildSettings(skeleton: SkeletonSpec, registry: RegistryTool[]): Record
     ],
   };
 
-  // Add formatter hook if project uses common formatters
-  const techStack = skeleton.outline.tech_stack.map((t) => t.toLowerCase());
+  // Add prettier formatter hook for JS/TS projects
   if (
     techStack.some((t) => t.includes("typescript") || t.includes("javascript") || t.includes("react") || t.includes("next"))
   ) {
-    hooks.PostToolUse = [
-      {
-        matcher: "Edit|Write",
-        hooks: [
-          {
-            type: "command",
-            command:
-              'FILE=$(cat | jq -r \'.tool_input.file_path // empty\') && [ -n "$FILE" ] && npx prettier --write "$FILE" 2>/dev/null || true',
-          },
-        ],
-      },
-    ];
+    if (!hooks.PostToolUse) hooks.PostToolUse = [];
+    (hooks.PostToolUse as unknown[]).push({
+      matcher: "Edit|Write",
+      hooks: [
+        {
+          type: "command",
+          command:
+            'FILE=$(cat | jq -r \'.tool_input.file_path // empty\') && [ -n "$FILE" ] && npx prettier --write "$FILE" 2>/dev/null || true',
+        },
+      ],
+    });
+  }
+
+  // Add ruff formatter hook for Python projects
+  if (techStack.some((t) => t.includes("python"))) {
+    if (!hooks.PostToolUse) hooks.PostToolUse = [];
+    (hooks.PostToolUse as unknown[]).push({
+      matcher: "Edit|Write",
+      hooks: [
+        {
+          type: "command",
+          command:
+            'FILE=$(cat | jq -r \'.tool_input.file_path // empty\') && [ -n "$FILE" ] && [[ "$FILE" == *.py ]] && ruff format "$FILE" 2>/dev/null || true',
+        },
+      ],
+    });
   }
 
   return { permissions: { allow, deny }, hooks };
@@ -233,33 +283,10 @@ export async function compile(
   const settings = buildSettings(skeleton, registry);
   const mcpConfig = buildMcpConfig(skeleton, registry);
 
-  // Build command/agent records from IR for intent routing
-  const commandsRecord: Record<string, string> = {};
-  for (const cmd of ir.commands) { commandsRecord[cmd.name] = cmd.content; }
-  const agentsRecord: Record<string, string> = {};
-  for (const agent of ir.agents) { agentsRecord[agent.name] = agent.content; }
-
-  // Intent routing: generate patterns, prompt template, and hook scripts
-  const projectProfile = {
-    language: skeleton.outline.tech_stack[0] ?? 'unknown',
-    framework: skeleton.outline.tech_stack[1] ?? 'none',
-    scripts: {} as Record<string, string>,
-  };
-  const intentPatterns = generateIntentPatterns(
-    commandsRecord,
-    agentsRecord,
-    projectProfile,
-  );
-  const intentPromptTemplate = compileIntentPrompt(
-    commandsRecord,
-    agentsRecord,
-  );
-  const generationTimestamp = new Date().toISOString();
+  // Intent routing removed in v2.12 — replaced by "Available Commands" section in CLAUDE.md
+  const intentPatterns: IntentPattern[] = [];
+  const intentPromptTemplate = '';
   const intentHooks: Record<string, string> = {};
-  if (intentPatterns.length > 0) {
-    intentHooks['intent-router'] = renderIntentRouter(intentPatterns, generationTimestamp);
-    intentHooks['intent-learner'] = renderIntentLearner();
-  }
 
   onProgress?.({ phase: 'assembly', status: 'success', message: 'Pass 4: Configured MCP servers & settings' });
 
@@ -286,7 +313,10 @@ export async function compile(
     tools: skeleton.tools,
     ir,
     harness: {
-      claude_md: renderClaudeMd(ir.meta, ir.sections),
+      claude_md: renderClaudeMd(ir.meta, ir.sections, ir.commands.map(c => ({
+        name: c.name,
+        description: c.content.split('\n').find(line => line.trim() && !line.startsWith('#'))?.trim() || c.name,
+      }))),
       settings,
       mcp_config: mcpConfig,
       commands,
