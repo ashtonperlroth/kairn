@@ -4,6 +4,7 @@ import { callLLM } from '../llm.js';
 import { loadIterationTraces } from './trace.js';
 import type { Task, Trace, Proposal, Mutation, IterationLog } from './types.js';
 import type { KairnConfig } from '../types.js';
+import type { HarnessIR, SettingsIR } from '../ir/types.js';
 
 export const PROPOSER_SYSTEM_PROMPT = `You are an expert agent environment optimizer. Your job is to improve a Claude Code
 agent environment (.claude/ directory) based on execution traces from real tasks.
@@ -70,6 +71,104 @@ the agent lacks a tool it needs, or has tools that add noise without benefit.
 - Ask: "Would this mutation help a developer working on ANY task in this project?" If not, don't propose it.
 
 Return ONLY valid JSON.`;
+
+/**
+ * Count the total number of settings-level hooks across all hook categories.
+ *
+ * Iterates over all hook categories (PreToolUse, PostToolUse, etc.) and sums
+ * the number of individual hook entries within each category.
+ */
+function countSettingsHooks(settings: SettingsIR): number {
+  let count = 0;
+  const categories = settings.hooks;
+  for (const key of Object.keys(categories) as Array<keyof typeof categories>) {
+    const entries = categories[key];
+    if (entries) {
+      count += entries.length;
+    }
+  }
+  return count;
+}
+
+/**
+ * Build a compact structural overview of a HarnessIR for proposer context.
+ *
+ * Produces a ~200-500 token summary listing counts and names of all IR
+ * components: sections, commands, rules, agents, MCP servers, skills, docs,
+ * hooks, and settings. This gives the proposer a structural map of the
+ * harness without including full content.
+ *
+ * @param ir - The HarnessIR to summarize
+ * @returns A markdown-formatted string suitable for injection into a prompt
+ */
+export function buildIRSummary(ir: HarnessIR): string {
+  const lines: string[] = [];
+
+  // Header
+  lines.push('## Harness Structure (IR)');
+
+  // Meta
+  const meta = ir.meta;
+  const techParts: string[] = [meta.techStack.language];
+  if (meta.techStack.framework) techParts.push(meta.techStack.framework);
+  if (meta.techStack.buildTool) techParts.push(meta.techStack.buildTool);
+  lines.push(`Project: ${meta.name || '(unnamed)'} — ${techParts.join(', ')}`);
+
+  // Sections
+  const sectionIds = ir.sections.map((s) => s.id);
+  lines.push(`Sections (${ir.sections.length}): ${sectionIds.join(', ') || 'none'}`);
+
+  // Commands — include description hint
+  const commandSummaries = ir.commands.map((c) => c.name);
+  lines.push(`Commands (${ir.commands.length}): ${commandSummaries.join(', ') || 'none'}`);
+
+  // Rules — include glob patterns
+  const ruleSummaries = ir.rules.map((r) => {
+    const pathHint = r.paths && r.paths.length > 0 ? ` (${r.paths.join(', ')})` : '';
+    return `${r.name}${pathHint}`;
+  });
+  lines.push(`Rules (${ir.rules.length}): ${ruleSummaries.join(', ') || 'none'}`);
+
+  // Agents
+  const agentNames = ir.agents.map((a) => a.name);
+  lines.push(`Agents (${ir.agents.length}): ${agentNames.join(', ') || 'none'}`);
+
+  // MCP Servers
+  const serverNames = ir.mcpServers.map((s) => s.id);
+  lines.push(`MCP Servers (${ir.mcpServers.length}): ${serverNames.join(', ') || 'none'}`);
+
+  // Optional categories — only show when non-empty
+  if (ir.skills.length > 0) {
+    const skillNames = ir.skills.map((s) => s.name);
+    lines.push(`Skills (${ir.skills.length}): ${skillNames.join(', ')}`);
+  }
+
+  if (ir.docs.length > 0) {
+    const docNames = ir.docs.map((d) => d.name);
+    lines.push(`Docs (${ir.docs.length}): ${docNames.join(', ')}`);
+  }
+
+  if (ir.hooks.length > 0) {
+    const hookNames = ir.hooks.map((h) => h.name);
+    lines.push(`Hooks (${ir.hooks.length}): ${hookNames.join(', ')}`);
+  }
+
+  // Settings summary
+  const settingsParts: string[] = [];
+  if (ir.settings.statusLine) {
+    settingsParts.push('statusLine=enabled');
+  }
+  if (ir.settings.denyPatterns && ir.settings.denyPatterns.length > 0) {
+    settingsParts.push(`denyPatterns=${ir.settings.denyPatterns.length}`);
+  }
+  const hooksCount = countSettingsHooks(ir.settings);
+  if (hooksCount > 0) {
+    settingsParts.push(`hooks=${hooksCount}`);
+  }
+  lines.push(`Settings: ${settingsParts.join(', ') || 'default'}`);
+
+  return lines.join('\n');
+}
 
 /** Maximum characters of stdout to include per trace in the prompt. */
 const STDOUT_TRUNCATION_LIMIT = 1000;
