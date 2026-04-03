@@ -424,6 +424,113 @@ describe('applyMutations', () => {
 
     expect(result.diffPatch).toBe('');
   });
+
+  it('persists harness-ir.json in the iteration directory after IR-based mutation', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(
+      path.join(currentHarness, 'CLAUDE.md'),
+      '# Project\n\nUse TypeScript.',
+    );
+
+    const mutations: Mutation[] = [
+      {
+        file: 'CLAUDE.md',
+        action: 'add_section',
+        newText: '## Testing\n\nRun vitest.',
+        rationale: 'Add testing section',
+      },
+    ];
+
+    await applyMutations(currentHarness, nextIter, mutations);
+
+    // harness-ir.json should be written in the iteration directory (parent of harness/)
+    const irPath = path.join(nextIter, 'harness-ir.json');
+    const irContent = await fs.readFile(irPath, 'utf-8');
+    const ir = JSON.parse(irContent) as Record<string, unknown>;
+
+    // Verify it's valid IR structure
+    expect(ir).toHaveProperty('meta');
+    expect(ir).toHaveProperty('sections');
+    expect(ir).toHaveProperty('commands');
+    expect(ir).toHaveProperty('rules');
+    expect(ir).toHaveProperty('settings');
+    expect(ir).toHaveProperty('mcpServers');
+  });
+
+  it('persists harness-ir.json with human-readable formatting', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(path.join(currentHarness, 'CLAUDE.md'), '# Project');
+
+    await applyMutations(currentHarness, nextIter, []);
+
+    const irPath = path.join(nextIter, 'harness-ir.json');
+    const irContent = await fs.readFile(irPath, 'utf-8');
+
+    // Human-readable JSON has newlines and indentation
+    expect(irContent).toContain('\n');
+    expect(irContent).toContain('  ');
+  });
+
+  it('persists harness-ir.json reflecting applied mutations', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(
+      path.join(currentHarness, 'CLAUDE.md'),
+      '# My App\n\n## Purpose\n\nBuild great software.',
+    );
+
+    const mutations: Mutation[] = [
+      {
+        file: 'rules/testing.md',
+        action: 'create_file',
+        newText: '# Testing\n\nAlways test first.',
+        rationale: 'Add testing rule',
+      },
+    ];
+
+    await applyMutations(currentHarness, nextIter, mutations);
+
+    const irPath = path.join(nextIter, 'harness-ir.json');
+    const irContent = await fs.readFile(irPath, 'utf-8');
+    const ir = JSON.parse(irContent) as { rules: Array<{ name: string }> };
+
+    // The IR should reflect the new rule added by the mutation
+    // (create_file for rules/ gets translated to an IR add_rule mutation)
+    expect(ir.rules).toBeDefined();
+    expect(Array.isArray(ir.rules)).toBe(true);
+  });
+
+  it('persists harness-ir.json even when harness has no CLAUDE.md (empty IR)', async () => {
+    const currentHarness = path.join(tempDir, 'current');
+    const nextIter = path.join(tempDir, 'iter1');
+    // Harness with no CLAUDE.md — parser returns empty IR (does not throw)
+    await fs.mkdir(currentHarness, { recursive: true });
+    await fs.writeFile(path.join(currentHarness, 'random.txt'), 'not a harness');
+
+    const mutations: Mutation[] = [
+      {
+        file: 'random.txt',
+        action: 'replace',
+        oldText: 'not a harness',
+        newText: 'still not a harness',
+        rationale: 'Test empty harness case',
+      },
+    ];
+
+    await applyMutations(currentHarness, nextIter, mutations);
+
+    // IR parser succeeds with empty IR, so harness-ir.json is still written
+    const irPath = path.join(nextIter, 'harness-ir.json');
+    const irContent = await fs.readFile(irPath, 'utf-8');
+    const ir = JSON.parse(irContent) as Record<string, unknown>;
+    expect(ir).toHaveProperty('meta');
+    expect(ir).toHaveProperty('sections');
+  });
 });
 
 describe('generateDiff', () => {

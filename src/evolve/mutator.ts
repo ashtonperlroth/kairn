@@ -18,7 +18,8 @@ import type { HarnessIR } from '../ir/types.js';
  * 3. Apply each IRMutation immutably (skip failures silently)
  * 4. Render the new IR to disk
  * 5. Apply any raw_text mutations via file-based string surgery (backward compat)
- * 6. Generate a structural diff between baseline and new IR
+ * 6. Persist the mutated IR as `harness-ir.json` in the iteration directory
+ * 7. Generate a structural diff between baseline and new IR
  *
  * Falls back to the legacy file-copy + string-surgery approach if IR parsing fails.
  *
@@ -62,6 +63,11 @@ export async function applyMutations(
  * raw_text mutations are applied via legacy file-based string surgery after
  * the IR mutations, preserving backward compatibility for non-IR-translatable
  * mutations.
+ *
+ * After all mutations are applied, the final IR is persisted as
+ * `harness-ir.json` in the iteration directory (parent of the harness path)
+ * so that downstream consumers (proposer, architect) can read the structured
+ * representation without re-parsing harness files.
  */
 async function applyMutationsViaIR(
   currentHarnessPath: string,
@@ -113,7 +119,14 @@ async function applyMutationsViaIR(
     await applyLegacyMutation(newHarnessPath, mutation);
   }
 
-  // 6. Generate structural diff
+  // 6. Persist the mutated IR for downstream consumers (proposer, architect)
+  await fs.writeFile(
+    path.join(newHarnessPath, '..', 'harness-ir.json'),
+    JSON.stringify(currentIR, null, 2),
+    'utf-8',
+  );
+
+  // 7. Generate structural diff
   const irDiff = diffIR(baselineIR, currentIR);
   let diffPatch = formatIRDiff(irDiff);
 
