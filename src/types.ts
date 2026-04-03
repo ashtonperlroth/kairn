@@ -1,5 +1,12 @@
-import type { IntentPattern } from './intent/types.js';
 import type { HarnessIR } from './ir/types.js';
+
+/** Legacy intent pattern type — retained for backward compatibility with saved environments. */
+export interface IntentPattern {
+  pattern: string;
+  command: string;
+  description: string;
+  source: 'generated' | 'evolved' | 'learned';
+}
 
 export type LLMProvider =
   | "anthropic"
