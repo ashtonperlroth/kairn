@@ -117,29 +117,45 @@ export const EVAL_TEMPLATES: Record<EvalTemplate, TemplateMetadata> = {
 };
 
 /**
+ * Substantive templates are always included in every eval suite.
+ * These test real coding ability and are the highest-signal evaluations.
+ */
+const SUBSTANTIVE_FLOOR: EvalTemplate[] = [
+  'real-bug-fix',
+  'real-feature-add',
+  'codebase-question',
+];
+
+/** Maximum harness-sensitivity templates to pair with the substantive floor. */
+const MAX_HARNESS_TEMPLATES = 4;
+
+/**
  * Select eval templates appropriate for a given workflow type.
  *
- * Returns a curated subset of eval templates that best match the
- * project's workflow. Falls back to a general-purpose set if the
- * workflow type is not recognized.
+ * All three substantive templates (real-bug-fix, real-feature-add,
+ * codebase-question) are always included. Up to 4 workflow-specific
+ * harness-sensitivity templates are added on top, giving a ~3:4
+ * substantive-to-harness ratio and a stable eval signal.
  */
 export function selectTemplatesForWorkflow(workflowType: string): EvalTemplate[] {
-  const mapping: Record<string, EvalTemplate[]> = {
-    'feature-development': ['add-feature', 'test-writing', 'convention-adherence', 'workflow-compliance', 'intent-routing', 'persistence-completion', 'real-feature-add'],
-    'api-building': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence', 'persistence-completion', 'real-feature-add'],
-    'full-stack': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence', 'persistence-completion', 'real-feature-add'],
-    'maintenance': ['fix-bug', 'refactor', 'test-writing', 'rule-compliance', 'persistence-completion', 'real-bug-fix'],
-    'debugging': ['fix-bug', 'test-writing', 'rule-compliance', 'real-bug-fix'],
-    'qa': ['fix-bug', 'test-writing', 'add-feature', 'workflow-compliance', 'real-bug-fix'],
-    'architecture': ['refactor', 'test-writing', 'config-change', 'convention-adherence', 'codebase-question'],
-    'backend': ['fix-bug', 'refactor', 'config-change', 'rule-compliance', 'real-bug-fix'],
-    'devops': ['config-change', 'fix-bug', 'rule-compliance', 'codebase-question'],
-    'infrastructure': ['config-change', 'refactor', 'convention-adherence', 'codebase-question'],
-    'tdd': ['test-writing', 'add-feature', 'fix-bug', 'workflow-compliance', 'real-feature-add'],
-    'content': ['documentation', 'add-feature', 'convention-adherence', 'codebase-question'],
-    'research': ['documentation', 'add-feature', 'convention-adherence', 'codebase-question'],
+  const harnessMapping: Record<string, EvalTemplate[]> = {
+    'feature-development': ['add-feature', 'test-writing', 'intent-routing', 'convention-adherence', 'workflow-compliance', 'persistence-completion'],
+    'api-building': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence', 'persistence-completion'],
+    'full-stack': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence', 'persistence-completion'],
+    'maintenance': ['fix-bug', 'refactor', 'test-writing', 'rule-compliance', 'persistence-completion'],
+    'debugging': ['fix-bug', 'test-writing', 'rule-compliance'],
+    'qa': ['fix-bug', 'test-writing', 'add-feature', 'workflow-compliance'],
+    'architecture': ['refactor', 'test-writing', 'config-change', 'convention-adherence'],
+    'backend': ['fix-bug', 'refactor', 'config-change', 'rule-compliance'],
+    'devops': ['config-change', 'fix-bug', 'rule-compliance'],
+    'infrastructure': ['config-change', 'refactor', 'convention-adherence'],
+    'tdd': ['test-writing', 'add-feature', 'fix-bug', 'workflow-compliance'],
+    'content': ['documentation', 'add-feature', 'convention-adherence'],
+    'research': ['documentation', 'add-feature', 'convention-adherence'],
   };
-  return mapping[workflowType] || ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence', 'real-bug-fix'];
+  const harness = (harnessMapping[workflowType] ?? ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'])
+    .slice(0, MAX_HARNESS_TEMPLATES);
+  return [...SUBSTANTIVE_FLOOR, ...harness];
 }
 
 /**
