@@ -7,6 +7,27 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.15.0] — 2026-04-03
+
+### Added
+- **Packed source caching** (`src/analyzer/cache.ts`) — Repomix output (~60K tokens) persisted to `.kairn-packed-source.txt` alongside analysis cache; subsequent runs skip Repomix entirely when cache is valid
+- **Enriched compilation pipeline** — `buildOptimizeIntent()` now includes full packed source code as evidence section; compilation agents receive ~62K tokens of context (up from ~2K)
+- **HarnessIR persistence** (`src/compiler/persist.ts`) — IR written to `.kairn/harness-ir.json` after compilation and to `iterations/{N}/harness-ir.json` after every evolve mutation
+- **IR summary builder** (`src/evolve/proposer.ts`) — `buildIRSummary()` produces compact structural overview of harness sections, commands, rules, agents, MCP servers, and settings
+- **Project context for evolve proposers** — reactive proposer and architect now receive ProjectAnalysis (~1K tokens), IR summary (~300 tokens), and key source files (~10K tokens) for project-aware optimization
+- **SWE-bench-style eval templates** (`src/evolve/templates.ts`) — three new substantive templates: `real-bug-fix`, `real-feature-add`, `codebase-question` with category tags
+- **Analysis-aware task generation** (`src/evolve/init.ts`) — `kairn evolve init` reads cached ProjectAnalysis to generate domain-specific eval tasks referencing actual modules and workflows
+- **Score breakdown in reports** (`src/evolve/report.ts`) — `kairn evolve report` shows separate harness-adherence vs. substantive-task scores when both categories are present
+- **`kairn analyze --ir`** — displays the current harness IR structure summary
+- 121 new tests (1577 total, up from 1456)
+
+### Changed
+- `analyzeProject()` now returns `AnalysisResult` (`{ analysis, packedSource }`) instead of bare `ProjectAnalysis`
+- All existing eval templates tagged with `category: 'harness-sensitivity'`; new templates tagged `'substantive'`
+- Task generation prompt enforces 50/50 balance between harness-sensitivity and substantive tasks
+
+---
+
 ## [2.14.0] — 2026-04-03
 
 ### Added
