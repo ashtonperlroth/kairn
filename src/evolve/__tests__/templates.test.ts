@@ -135,15 +135,52 @@ describe("EVAL_TEMPLATES", () => {
 });
 
 describe("selectTemplatesForWorkflow", () => {
-  it("returns templates for known workflow types", () => {
+  const substantive: EvalTemplate[] = ["real-bug-fix", "real-feature-add", "codebase-question"];
+
+  it("always includes all three substantive templates", () => {
+    const workflows = [
+      "feature-development", "api-building", "full-stack", "maintenance",
+      "debugging", "qa", "architecture", "backend", "devops",
+      "infrastructure", "tdd", "content", "research", "unknown-workflow",
+    ];
+    for (const wf of workflows) {
+      const result = selectTemplatesForWorkflow(wf);
+      for (const t of substantive) {
+        expect(result, `${wf} should include ${t}`).toContain(t);
+      }
+    }
+  });
+
+  it("includes workflow-specific harness templates after the substantive floor", () => {
     const result = selectTemplatesForWorkflow("feature-development");
     expect(result).toContain("add-feature");
     expect(result).toContain("test-writing");
   });
 
-  it("returns default templates for unknown workflow types", () => {
+  it("caps harness templates at 4", () => {
+    const workflows = [
+      "feature-development", "api-building", "full-stack", "maintenance",
+      "debugging", "qa", "architecture", "backend", "devops",
+      "infrastructure", "tdd", "content", "research", "unknown-workflow",
+    ];
+    for (const wf of workflows) {
+      const result = selectTemplatesForWorkflow(wf);
+      const harnessCount = result.filter(t => !substantive.includes(t)).length;
+      expect(harnessCount, `${wf} should have at most 4 harness templates`).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("returns 7 templates for workflows with enough harness options", () => {
+    const result = selectTemplatesForWorkflow("feature-development");
+    expect(result).toHaveLength(7);
+  });
+
+  it("returns default harness templates for unknown workflow types", () => {
     const result = selectTemplatesForWorkflow("unknown-workflow");
-    expect(result).toEqual(["add-feature", "fix-bug", "test-writing", "convention-adherence", "real-bug-fix"]);
+    expect(result).toContain("add-feature");
+    expect(result).toContain("fix-bug");
+    expect(result).toContain("test-writing");
+    expect(result).toContain("convention-adherence");
   });
 
   it("includes at least one harness-aware template for every workflow", () => {
@@ -158,6 +195,11 @@ describe("selectTemplatesForWorkflow", () => {
       const hasHarnessAware = templates.some(t => harnessAware.includes(t));
       expect(hasHarnessAware, `${wf} should have a harness-aware template`).toBe(true);
     }
+  });
+
+  it("substantive templates come first in the returned array", () => {
+    const result = selectTemplatesForWorkflow("feature-development");
+    expect(result.slice(0, 3)).toEqual(substantive);
   });
 });
 
@@ -408,26 +450,18 @@ describe("codebase-question template", () => {
 });
 
 describe("selectTemplatesForWorkflow with substantive templates", () => {
-  it("includes substantive templates for feature-development workflow", () => {
-    const result = selectTemplatesForWorkflow("feature-development");
-    expect(result).toContain("real-feature-add");
-  });
+  const substantive: EvalTemplate[] = ["real-bug-fix", "real-feature-add", "codebase-question"];
 
-  it("includes real-bug-fix for maintenance workflow", () => {
-    const result = selectTemplatesForWorkflow("maintenance");
-    expect(result).toContain("real-bug-fix");
-  });
-
-  it("includes codebase-question for research workflow", () => {
-    const result = selectTemplatesForWorkflow("research");
-    expect(result).toContain("codebase-question");
-  });
-
-  it("default workflow includes at least one substantive template", () => {
-    const result = selectTemplatesForWorkflow("unknown-workflow");
-    const substantive: EvalTemplate[] = ["real-bug-fix", "real-feature-add", "codebase-question"];
-    const hasSubstantive = result.some(t => substantive.includes(t));
-    expect(hasSubstantive).toBe(true);
+  it("includes all substantive templates for every workflow type", () => {
+    const workflows = [
+      "feature-development", "maintenance", "research", "unknown-workflow",
+    ];
+    for (const wf of workflows) {
+      const result = selectTemplatesForWorkflow(wf);
+      for (const t of substantive) {
+        expect(result, `${wf} should include ${t}`).toContain(t);
+      }
+    }
   });
 });
 

@@ -19,12 +19,12 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Analysis-aware task generation** (`src/evolve/init.ts`) — `kairn evolve init` reads cached ProjectAnalysis to generate domain-specific eval tasks referencing actual modules and workflows
 - **Score breakdown in reports** (`src/evolve/report.ts`) — `kairn evolve report` shows separate harness-adherence vs. substantive-task scores when both categories are present
 - **`kairn analyze --ir`** — displays the current harness IR structure summary
-- 121 new tests (1577 total, up from 1456)
+- 122 new tests (1578 total, up from 1456)
 
 ### Changed
 - `analyzeProject()` now returns `AnalysisResult` (`{ analysis, packedSource }`) instead of bare `ProjectAnalysis`
 - All existing eval templates tagged with `category: 'harness-sensitivity'`; new templates tagged `'substantive'`
-- Task generation prompt enforces 50/50 balance between harness-sensitivity and substantive tasks
+- `selectTemplatesForWorkflow()` always includes all 3 substantive templates as a guaranteed floor, plus up to 4 workflow-specific harness-sensitivity templates (~3:4 ratio)
 
 ---
 
