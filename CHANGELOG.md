@@ -21,6 +21,9 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kairn analyze --ir`** — displays the current harness IR structure summary
 - 122 new tests (1578 total, up from 1456)
 
+### Fixed
+- Language detection now handles monorepos — scans immediate subdirectories when no language signal found at project root
+
 ### Changed
 - `analyzeProject()` now returns `AnalysisResult` (`{ analysis, packedSource }`) instead of bare `ProjectAnalysis`
 - All existing eval templates tagged with `category: 'harness-sensitivity'`; new templates tagged `'substantive'`

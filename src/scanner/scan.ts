@@ -111,14 +111,59 @@ function detectFramework(deps: string[]): string | null {
   return detected.length > 0 ? detected.join(" + ") : null;
 }
 
-function detectLanguage(dir: string, keyFiles: string[]): string | null {
-  if (keyFiles.some((f) => f === "tsconfig.json")) return "TypeScript";
-  if (keyFiles.some((f) => f === "package.json")) return "JavaScript";
-  if (keyFiles.some((f) => f === "pyproject.toml" || f === "setup.py" || f === "requirements.txt")) return "Python";
-  if (keyFiles.some((f) => f === "Cargo.toml")) return "Rust";
-  if (keyFiles.some((f) => f === "go.mod")) return "Go";
-  if (keyFiles.some((f) => f === "Gemfile")) return "Ruby";
+/** Language signal files, ordered by precedence. */
+const LANGUAGE_SIGNALS: Array<{ files: string[]; language: string }> = [
+  { files: ['tsconfig.json'], language: 'TypeScript' },
+  { files: ['package.json'], language: 'JavaScript' },
+  { files: ['pyproject.toml', 'setup.py', 'requirements.txt'], language: 'Python' },
+  { files: ['Cargo.toml'], language: 'Rust' },
+  { files: ['go.mod'], language: 'Go' },
+  { files: ['Gemfile'], language: 'Ruby' },
+];
+
+function detectLanguageFromFiles(files: string[]): string | null {
+  for (const signal of LANGUAGE_SIGNALS) {
+    if (files.some((f) => signal.files.includes(f))) return signal.language;
+  }
   return null;
+}
+
+/**
+ * Detect the primary language from root files first. If the root has no
+ * signal (common in monorepos), scan immediate subdirectories and pick
+ * the most common language.
+ */
+async function detectLanguage(dir: string, keyFiles: string[]): Promise<string | null> {
+  const rootHit = detectLanguageFromFiles(keyFiles);
+  if (rootHit) return rootHit;
+
+  // Monorepo fallback: scan one level of subdirectories
+  const entries = await listDirSafe(dir);
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const subPath = path.join(dir, entry);
+    try {
+      const stat = await fs.stat(subPath);
+      if (!stat.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const subFiles = await listDirSafe(subPath);
+    const lang = detectLanguageFromFiles(subFiles);
+    if (lang) counts.set(lang, (counts.get(lang) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+
+  // Return the most common language across subdirectories
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [lang, count] of counts) {
+    if (count > bestCount) {
+      best = lang;
+      bestCount = count;
+    }
+  }
+  return best;
 }
 
 function extractEnvKeys(content: string): string[] {
@@ -150,7 +195,7 @@ export async function scanProject(dir: string): Promise<ProjectProfile> {
   );
 
   // Detect language & framework
-  const language = detectLanguage(dir, keyFiles);
+  const language = await detectLanguage(dir, keyFiles);
   const framework = detectFramework(allDeps);
   const typescript = keyFiles.includes("tsconfig.json") || allDeps.includes("typescript");
 
