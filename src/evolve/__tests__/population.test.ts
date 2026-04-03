@@ -63,6 +63,9 @@ function makeEvolveConfig(overrides: Partial<EvolveConfig> = {}): EvolveConfig {
     samplingStrategy: 'uniform',
     klLambda: 0,
     pbtBranches: 3,
+    architectEvery: 3,
+    schedule: 'explore-exploit',
+    architectModel: 'claude-sonnet-4-6',
     ...overrides,
   };
 }

@@ -71,6 +71,9 @@ export interface EvolveConfig {
   klLambda: number;
   pbtBranches: number;
   rngSeed?: number;  // per-branch seed for Thompson Sampling (default: 42)
+  architectEvery: number;
+  schedule: 'explore-exploit' | 'constant' | 'adaptive';
+  architectModel: string;
 }
 
 // Shape of parsed tasks.yaml
@@ -126,6 +129,55 @@ export interface Proposal {
   expectedImpact: Record<string, string>;
 }
 
+/** Architect proposer result — extends Proposal with structural change metadata. */
+export interface ArchitectProposal extends Proposal {
+  structural: boolean;
+  source: 'architect';
+}
+
+/** A reusable pattern discovered during evolution, persisted in the knowledge base. */
+export interface KnowledgePattern {
+  id: string;
+  type: 'universal' | 'language' | 'framework' | 'project';
+  description: string;
+  mutation: Mutation;
+  evidence: {
+    repos_tested: number;
+    repos_helped: number;
+    mean_score_delta: number;
+    languages: string[];
+  };
+  discovered_at: string;
+  last_validated: string;
+  rejected?: boolean;
+}
+
+/** Configuration for the cross-repo research protocol. */
+export interface ResearchConfig {
+  repos: string[];
+  iterationsPerRepo: number;
+  convergenceThreshold: number;
+  outputPath?: string;
+}
+
+/** Result of a cross-repo research run with convergent patterns. */
+export interface ResearchReport {
+  universal: KnowledgePattern[];
+  languageSpecific: Record<string, KnowledgePattern[]>;
+  failed: KnowledgePattern[];
+  repoResults: Array<{ repo: string; bestScore: number; patternsFound: number }>;
+}
+
+/** Progress events emitted during research protocol execution. */
+export interface ResearchProgressEvent {
+  type: 'repo-start' | 'repo-complete' | 'convergence-analysis' | 'research-complete';
+  repo?: string;
+  repoIndex?: number;
+  totalRepos?: number;
+  bestScore?: number;
+  message?: string;
+}
+
 // Lightweight project info for task generation
 export interface ProjectProfileSummary {
   language: string | null;
@@ -144,6 +196,7 @@ export interface IterationLog {
   timestamp: string;
   rawScore?: number;            // pre-KL-penalty score (when KL regularization is active)
   complexityCost?: number;      // KL complexity cost for this iteration
+  source?: 'reactive' | 'architect';
 }
 
 // Final result of an evolution run
@@ -199,6 +252,7 @@ export interface EvolutionReport {
     stddev?: number;
     mutationCount: number;
     status: string;
+    mode?: string;
   }>;
   leaderboard: Array<{
     taskId: string;
@@ -212,7 +266,7 @@ export interface EvolutionReport {
 
 // Progress events emitted during the evolution loop
 export interface LoopProgressEvent {
-  type: 'iteration-start' | 'iteration-scored' | 'rollback' | 'proposing' | 'proposer-error' | 'mutations-applied' | 'perfect-score' | 'task-start' | 'task-scored' | 'task-run' | 'task-skipped' | 'task-regression' | 'complete';
+  type: 'iteration-start' | 'iteration-scored' | 'rollback' | 'proposing' | 'proposer-error' | 'mutations-applied' | 'perfect-score' | 'task-start' | 'task-scored' | 'task-run' | 'task-skipped' | 'task-regression' | 'architect-start' | 'architect-staging' | 'architect-accepted' | 'architect-rejected' | 'complete';
   iteration: number;
   score?: number;
   mutationCount?: number;

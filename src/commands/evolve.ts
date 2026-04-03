@@ -34,6 +34,9 @@ const DEFAULT_CONFIG: EvolveConfig = {
   samplingStrategy: 'thompson',
   klLambda: 0.1,
   pbtBranches: 3,
+  architectEvery: 3,
+  schedule: 'explore-exploit',
+  architectModel: 'claude-sonnet-4-6',
 };
 
 /**
@@ -59,6 +62,9 @@ export async function loadEvolveConfigFromWorkspace(workspacePath: string): Prom
       samplingStrategy: (parsed.sampling_strategy as EvolveConfig['samplingStrategy']) ?? DEFAULT_CONFIG.samplingStrategy,
       klLambda: (parsed.kl_lambda as number) ?? DEFAULT_CONFIG.klLambda,
       pbtBranches: (parsed.pbt_branches as number) ?? DEFAULT_CONFIG.pbtBranches,
+      architectEvery: (parsed.architect_every as number) ?? DEFAULT_CONFIG.architectEvery,
+      schedule: (parsed.schedule as EvolveConfig['schedule']) ?? DEFAULT_CONFIG.schedule,
+      architectModel: (parsed.architect_model as string) ?? DEFAULT_CONFIG.architectModel,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

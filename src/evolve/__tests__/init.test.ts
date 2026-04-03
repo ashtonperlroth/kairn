@@ -38,6 +38,9 @@ function makeEvolveConfig(overrides: Partial<EvolveConfig> = {}): EvolveConfig {
     samplingStrategy: 'thompson',
     klLambda: 0.1,
     pbtBranches: 3,
+    architectEvery: 3,
+    schedule: 'explore-exploit',
+    architectModel: 'claude-sonnet-4-6',
     ...overrides,
   };
 }
