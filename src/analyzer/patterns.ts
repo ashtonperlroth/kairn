@@ -217,6 +217,45 @@ export function classifyFilePriority(filePath: string, strategy: SamplingStrateg
   return FileTier.OTHER;
 }
 
+// --- Strategy merging ---
+
+/** Remove duplicate strings, preserving first-occurrence order. */
+function dedupe(arr: string[]): string[] {
+  return Array.from(new Set(arr));
+}
+
+/**
+ * Merge multiple language-specific sampling strategies into a single unified
+ * strategy. Used for multi-language monorepos where the analyzer must sample
+ * files from all detected languages through a single pipeline pass.
+ *
+ * The merged strategy unions all patterns (entry points, domain, config,
+ * exclude, extensions) with deduplication, joins language names with "/",
+ * and takes the maximum `maxFilesPerCategory` across all inputs.
+ *
+ * @param strategies - One or more sampling strategies to merge.
+ * @returns A single SamplingStrategy representing the union of all inputs.
+ * @throws {Error} If the strategies array is empty.
+ */
+export function mergeStrategies(strategies: SamplingStrategy[]): SamplingStrategy {
+  if (strategies.length === 0) {
+    throw new Error('mergeStrategies requires at least one strategy');
+  }
+  if (strategies.length === 1) {
+    return strategies[0];
+  }
+
+  return {
+    language: strategies.map(s => s.language).join('/'),
+    extensions: dedupe(strategies.flatMap(s => s.extensions)),
+    entryPoints: dedupe(strategies.flatMap(s => s.entryPoints)),
+    domainPatterns: dedupe(strategies.flatMap(s => s.domainPatterns)),
+    configPatterns: dedupe(strategies.flatMap(s => s.configPatterns)),
+    excludePatterns: dedupe(strategies.flatMap(s => s.excludePatterns)),
+    maxFilesPerCategory: Math.max(...strategies.map(s => s.maxFilesPerCategory)),
+  };
+}
+
 // --- Dynamic entry point resolution ---
 
 /**

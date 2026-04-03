@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { getStrategy, getAlwaysInclude, STRATEGIES, classifyFilePriority, FileTier, resolveStrategy } from '../patterns.js';
+import { getStrategy, getAlwaysInclude, STRATEGIES, classifyFilePriority, FileTier, resolveStrategy, mergeStrategies } from '../patterns.js';
 import type { SamplingStrategy } from '../patterns.js';
 
 describe('getStrategy', () => {
@@ -238,5 +238,182 @@ describe('resolveStrategy', () => {
     await fs.writeFile(path.join(tmpDir, 'manage.py'), '#!/usr/bin/env python');
     const resolved = await resolveStrategy(tmpDir, pyBase, 'Django', {});
     expect(resolved.entryPoints).toContain('manage.py');
+  });
+});
+
+describe('mergeStrategies', () => {
+  const python = STRATEGIES['python'];
+  const typescript = STRATEGIES['typescript'];
+  const go = STRATEGIES['go'];
+
+  it('throws an error when given an empty array', () => {
+    expect(() => mergeStrategies([])).toThrow('mergeStrategies requires at least one strategy');
+  });
+
+  it('returns the single strategy unchanged for a one-element array', () => {
+    const result = mergeStrategies([python]);
+    expect(result).toBe(python);
+  });
+
+  it('merges Python + TypeScript language names with "/" separator', () => {
+    const result = mergeStrategies([python, typescript]);
+    expect(result.language).toBe('Python/TypeScript');
+  });
+
+  it('merges extensions from both languages without duplicates', () => {
+    const result = mergeStrategies([python, typescript]);
+    expect(result.extensions).toContain('.py');
+    expect(result.extensions).toContain('.ts');
+    expect(result.extensions).toContain('.tsx');
+    // No duplicates
+    const unique = new Set(result.extensions);
+    expect(result.extensions.length).toBe(unique.size);
+  });
+
+  it('merges entry points from both languages', () => {
+    const result = mergeStrategies([python, typescript]);
+    // Python entry points
+    expect(result.entryPoints).toContain('main.py');
+    expect(result.entryPoints).toContain('app.py');
+    // TypeScript entry points
+    expect(result.entryPoints).toContain('src/index.ts');
+    expect(result.entryPoints).toContain('src/main.ts');
+  });
+
+  it('merges domain patterns from both languages', () => {
+    const result = mergeStrategies([python, typescript]);
+    // Python domain patterns
+    expect(result.domainPatterns).toContain('models/');
+    expect(result.domainPatterns).toContain('pipelines/');
+    // TypeScript domain patterns
+    expect(result.domainPatterns).toContain('src/lib/');
+    expect(result.domainPatterns).toContain('src/components/');
+  });
+
+  it('merges config patterns from both languages without duplicates', () => {
+    const result = mergeStrategies([python, typescript]);
+    // Python config
+    expect(result.configPatterns).toContain('pyproject.toml');
+    expect(result.configPatterns).toContain('requirements.txt');
+    // TypeScript config
+    expect(result.configPatterns).toContain('tsconfig.json');
+    expect(result.configPatterns).toContain('package.json');
+    // No duplicates
+    const unique = new Set(result.configPatterns);
+    expect(result.configPatterns.length).toBe(unique.size);
+  });
+
+  it('unions exclude patterns from both languages', () => {
+    const result = mergeStrategies([python, typescript]);
+    // Python excludes
+    expect(result.excludePatterns).toContain('**/__pycache__/**');
+    expect(result.excludePatterns).toContain('**/*.pyc');
+    // TypeScript excludes
+    expect(result.excludePatterns).toContain('**/node_modules/**');
+    expect(result.excludePatterns).toContain('**/*.test.ts');
+    // No duplicates
+    const unique = new Set(result.excludePatterns);
+    expect(result.excludePatterns.length).toBe(unique.size);
+  });
+
+  it('takes the maximum maxFilesPerCategory from all strategies', () => {
+    // Both Python and TypeScript have maxFilesPerCategory = 5
+    const result = mergeStrategies([python, typescript]);
+    expect(result.maxFilesPerCategory).toBe(5);
+
+    // Create a strategy with a higher maxFilesPerCategory
+    const customStrategy: SamplingStrategy = {
+      ...python,
+      maxFilesPerCategory: 10,
+    };
+    const result2 = mergeStrategies([customStrategy, typescript]);
+    expect(result2.maxFilesPerCategory).toBe(10);
+  });
+
+  it('deduplicates shared patterns across strategies', () => {
+    // Python and TypeScript both have 'src/' in domain patterns (Python)
+    // and patterns starting with 'src/' (TypeScript). But let's check
+    // that if we have identical patterns they get deduped.
+    const stratA: SamplingStrategy = {
+      language: 'LangA',
+      extensions: ['.a', '.shared'],
+      entryPoints: ['shared-entry.ts'],
+      domainPatterns: ['shared/', 'unique-a/'],
+      configPatterns: ['shared.toml', 'a.toml'],
+      excludePatterns: ['**/dist/**', '**/unique-a/**'],
+      maxFilesPerCategory: 3,
+    };
+    const stratB: SamplingStrategy = {
+      language: 'LangB',
+      extensions: ['.b', '.shared'],
+      entryPoints: ['shared-entry.ts', 'unique-b.ts'],
+      domainPatterns: ['shared/', 'unique-b/'],
+      configPatterns: ['shared.toml', 'b.toml'],
+      excludePatterns: ['**/dist/**', '**/unique-b/**'],
+      maxFilesPerCategory: 7,
+    };
+
+    const result = mergeStrategies([stratA, stratB]);
+
+    expect(result.language).toBe('LangA/LangB');
+    // .shared appears only once
+    expect(result.extensions.filter(e => e === '.shared').length).toBe(1);
+    // shared-entry.ts appears only once
+    expect(result.entryPoints.filter(e => e === 'shared-entry.ts').length).toBe(1);
+    // shared/ appears only once
+    expect(result.domainPatterns.filter(p => p === 'shared/').length).toBe(1);
+    // shared.toml appears only once
+    expect(result.configPatterns.filter(p => p === 'shared.toml').length).toBe(1);
+    // **/dist/** appears only once
+    expect(result.excludePatterns.filter(p => p === '**/dist/**').length).toBe(1);
+    // maxFilesPerCategory is max(3, 7) = 7
+    expect(result.maxFilesPerCategory).toBe(7);
+  });
+
+  it('handles three-language merge (Python + TypeScript + Go)', () => {
+    const result = mergeStrategies([python, typescript, go]);
+    expect(result.language).toBe('Python/TypeScript/Go');
+
+    // Extensions from all three
+    expect(result.extensions).toContain('.py');
+    expect(result.extensions).toContain('.ts');
+    expect(result.extensions).toContain('.tsx');
+    expect(result.extensions).toContain('.go');
+
+    // Entry points from all three
+    expect(result.entryPoints).toContain('main.py');
+    expect(result.entryPoints).toContain('src/index.ts');
+    expect(result.entryPoints).toContain('main.go');
+
+    // Domain patterns from all three
+    expect(result.domainPatterns).toContain('models/');
+    expect(result.domainPatterns).toContain('src/components/');
+    expect(result.domainPatterns).toContain('internal/');
+    expect(result.domainPatterns).toContain('pkg/');
+
+    // Config patterns from all three
+    expect(result.configPatterns).toContain('pyproject.toml');
+    expect(result.configPatterns).toContain('tsconfig.json');
+    expect(result.configPatterns).toContain('go.mod');
+
+    // No duplicates in any field
+    for (const field of ['extensions', 'entryPoints', 'domainPatterns', 'configPatterns', 'excludePatterns'] as const) {
+      const arr = result[field];
+      expect(arr.length).toBe(new Set(arr).size);
+    }
+
+    // maxFilesPerCategory = max(5, 5, 5) = 5
+    expect(result.maxFilesPerCategory).toBe(5);
+  });
+
+  it('does not mutate the input strategies', () => {
+    const pythonCopy = { ...python, entryPoints: [...python.entryPoints] };
+    const tsCopy = { ...typescript, entryPoints: [...typescript.entryPoints] };
+
+    mergeStrategies([pythonCopy, tsCopy]);
+
+    // Original copies should be unchanged
+    expect(pythonCopy.entryPoints).toEqual(python.entryPoints);
+    expect(tsCopy.entryPoints).toEqual(typescript.entryPoints);
   });
 });
