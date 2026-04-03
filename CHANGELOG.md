@@ -7,6 +7,29 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.12.0] — 2026-04-03
+
+### Added
+- **Existing-repo detection in `describe`** — detects project config files (package.json, pyproject.toml, Cargo.toml, etc.) and source directories, offers redirect to `kairn optimize` for better results on existing codebases
+- **"Available Commands" section in CLAUDE.md** — generated environments now include a portable command reference section listing all `/project:*` commands with descriptions. Replaces regex-based intent routing with natural language instructions
+- **Tech-stack-aware permissions** — `settings.json` allow-list derived from detected tech stack: Python (pytest, pip, uv), Rust (cargo), Go (go), Ruby (bundle, rake), Docker (docker, docker compose). Node.js permissions only added when JS/TS detected
+- **Python formatter hook** — ruff format PostToolUse hook added for Python projects (alongside existing prettier for JS/TS)
+- **Living docs with update hooks** — PostToolUse prompt hook nudges doc updates after meaningful Write/Edit operations. Placeholder-only docs (empty tables, filler text) are filtered out before writing
+- **Environment variable documentation** — CLAUDE.md includes an "Environment Variables" section listing expected vars when tools require API keys
+- **Animated compilation progress** — braille dot spinner (10 frames at 100ms), cumulative elapsed timer, and richer phase descriptions with agent names
+
+### Changed
+- `.env` deny rule is now conditional — only applied when project doesn't use env vars. Removes the security contradiction where .env was both injected and denied
+- `buildSettings()` exported for testability
+- `BatchProgress` interface extended with `detail` field for agent names
+
+### Removed
+- **Intent routing infrastructure** — deleted `src/intent/` directory (patterns.ts, router-template.ts, learner-template.ts, prompt-template.ts, types.ts) and all 5 test files. Regex-based routing on common English words ("test", "run", "help") caused persistent false positives
+- **Intent hook generation** — `intent-router.mjs`, `intent-learner.mjs`, `intent-log.jsonl` no longer generated in `.claude/hooks/`
+- **SessionStart .env injection hook** — removed `ENV_LOADER_HOOK` that contradicted the `Read(./.env)` deny rule
+
+---
+
 ## [2.11.1] — 2026-04-02
 
 ### Changed
