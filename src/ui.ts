@@ -124,7 +124,7 @@ export function estimateTime(model: string, intent: string): string {
 
   // Find closest match or default to 20s per pass
   const basePerPass = Object.entries(perPass).find(([k]) => model.toLowerCase().includes(k))?.[1] ?? 20;
-  const totalBase = basePerPass * 2; // 2 LLM passes
+  const totalBase = basePerPass * 3; // orchestrator + parallel agents + linker
 
   if (isComplex) {
     const low = Math.floor(totalBase * 1.5);
@@ -184,14 +184,8 @@ export function createProgressRenderer(): {
         }
         currentPhase = '';
       } else if (progress.status === 'warning') {
-        const lastIdx = lines.length - 1;
-        if (lastIdx >= 0) {
-          lines[lastIdx] = `  ${chalk.yellow("⚠")} ${progress.message}`;
-        }
-        // Add new running line for the retry
-        currentPhase = progress.phase;
-        phaseStart = Date.now();
-        lines.push(`  ${warmStone("◐")} Retrying in concise mode... ${chalk.dim("[0s]")}`);
+        // Show the warning on its own line
+        lines.push(`  ${chalk.yellow("⚠")} ${progress.message}`);
       }
       render();
     },

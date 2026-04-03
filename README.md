@@ -4,7 +4,7 @@
 
 Kairn is a CLI that compiles natural language descriptions into minimal, optimal [Claude Code](https://code.claude.com/) agent environments — complete with MCP servers, slash commands, skills, subagents, rules, and security. Then it uses **automated evolution** (inspired by [Meta-Harness](https://yoonholee.com/meta-harness/), Stanford IRIS Lab 2026) to improve them through real-world task execution.
 
-**v2.10.0** adds **Persistent Execution Loops** — `/project:persist` tracks acceptance criteria, retries on failure, and resumes across sessions. Auto-routing detects complex tasks and channels them through the persistence loop. Previous highlights: population-based evolution (v2.6), structured HarnessIR (v2.7), intent-aware routing (v2.5), and Anthropic harness patterns (v2.9).
+**v2.11.0** introduces a **Multi-Agent Compilation Pipeline** — the monolithic Pass 2 LLM call is replaced by an @orchestrator planner and 6 specialist agents (@sections-writer, @command-writer, @agent-writer, @rule-writer, @doc-writer, @skill-writer) that run in parallel phases, producing typed HarnessIR nodes. Eliminates JSON truncation failures and produces higher-quality harnesses. Previous highlights: persistent execution loops (v2.10), population-based evolution (v2.6), structured HarnessIR (v2.7), intent-aware routing (v2.5).
 
 **No servers. No accounts. No telemetry. Runs locally with your own LLM key.**
 
@@ -366,8 +366,9 @@ kairn describe "Next.js REST API with Prisma ORM and PostgreSQL. OAuth login, JW
 
 # Output:
 # ✔ Pass 1: Selected 7 tools (GitHub, PostgreSQL, Vercel, Semgrep, Docker, Context7, Sequential Thinking)
-# ✔ Pass 2: Generated 73 lines in CLAUDE.md, 8 commands, 4 rules, 3 agents, 2 skills
-# ✔ Pass 3: Configured 2 MCP servers (PostgreSQL + GitHub)
+# ✔ Pass 2: @orchestrator planned 6 agents across 3 phases
+# ✔ Pass 3: Specialist agents generated 8 commands, 4 rules, 3 agents, 2 skills (73 lines in CLAUDE.md)
+# ✔ Pass 4: Configured 2 MCP servers (PostgreSQL + GitHub)
 # 
 # Commands:
 #   /project:help      Show available commands
@@ -533,7 +534,7 @@ kairn evolve apply     # Copy iteration 2 to .claude/
 ### v1.x ✅ (Complete)
 Local CLI for generating and managing Claude Code environments. Includes advanced patterns (sprint contracts, multi-agent QA, autonomy levels), templates, secrets management, and Claude Code power patterns (TDD, verification, known gotchas).
 
-### v2.x (Current — v2.10.0)
+### v2.x (Current — v2.11.0)
 **Kairn Evolve** — automated harness optimization.
 
 - **v2.0.0** ✅ Task Definition & Trace Infrastructure

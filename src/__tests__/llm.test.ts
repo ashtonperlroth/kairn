@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { classifyError, callLLM } from "../llm.js";
+import { TruncationError } from "../compiler/agents/types.js";
 import type { KairnConfig } from "../types.js";
 
 const anthropicCreateMock = vi.fn();
@@ -348,5 +349,139 @@ describe("callLLM", () => {
     expect(result).toBe("plain openai response");
     const callArg = openaiCreateMock.mock.calls[0][0];
     expect(callArg).not.toHaveProperty("response_format");
+  });
+});
+
+describe("callLLM truncation detection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("throws TruncationError when Anthropic response has stop_reason max_tokens", async () => {
+    anthropicCreateMock.mockResolvedValueOnce({
+      content: [{ type: "text", text: '{"partial": true' }],
+      stop_reason: "max_tokens",
+    });
+    const config = makeConfig();
+    await expect(
+      callLLM(config, "test", {
+        systemPrompt: "test",
+        agentName: "sections-writer",
+      }),
+    ).rejects.toThrow(TruncationError);
+  });
+
+  it("TruncationError carries agent name and tokens used", async () => {
+    anthropicCreateMock.mockResolvedValueOnce({
+      content: [{ type: "text", text: "partial" }],
+      stop_reason: "max_tokens",
+    });
+    const config = makeConfig();
+    try {
+      await callLLM(config, "test", {
+        systemPrompt: "test",
+        maxTokens: 4096,
+        agentName: "rule-writer",
+      });
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(TruncationError);
+      expect((err as TruncationError).agentName).toBe("rule-writer");
+      expect((err as TruncationError).tokensUsed).toBe(4096);
+    }
+  });
+
+  it("does not throw TruncationError when Anthropic stop_reason is end_turn", async () => {
+    anthropicCreateMock.mockResolvedValueOnce({
+      content: [{ type: "text", text: "complete response" }],
+      stop_reason: "end_turn",
+    });
+    const config = makeConfig();
+    const result = await callLLM(config, "test", {
+      systemPrompt: "test",
+      agentName: "sections-writer",
+    });
+    expect(result).toBe("complete response");
+  });
+
+  it("throws TruncationError when OpenAI finish_reason is length", async () => {
+    openaiCreateMock.mockResolvedValueOnce({
+      choices: [
+        { message: { content: "partial" }, finish_reason: "length" },
+      ],
+    });
+    const config = makeConfig({ provider: "openai", model: "gpt-4.1" });
+    await expect(
+      callLLM(config, "test", {
+        systemPrompt: "test",
+        agentName: "command-writer",
+      }),
+    ).rejects.toThrow(TruncationError);
+  });
+
+  it("does not throw TruncationError when OpenAI finish_reason is stop", async () => {
+    openaiCreateMock.mockResolvedValueOnce({
+      choices: [{ message: { content: "complete" }, finish_reason: "stop" }],
+    });
+    const config = makeConfig({ provider: "openai", model: "gpt-4.1" });
+    const result = await callLLM(config, "test", { systemPrompt: "test" });
+    expect(result).toBe("complete");
+  });
+
+  it("uses 'unknown' as agent name when agentName not provided", async () => {
+    anthropicCreateMock.mockResolvedValueOnce({
+      content: [{ type: "text", text: "partial" }],
+      stop_reason: "max_tokens",
+    });
+    const config = makeConfig();
+    try {
+      await callLLM(config, "test", {
+        systemPrompt: "test",
+        maxTokens: 2048,
+      });
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(TruncationError);
+      expect((err as TruncationError).agentName).toBe("unknown");
+    }
+  });
+
+  it("includes agent name in TruncationError message", async () => {
+    anthropicCreateMock.mockResolvedValueOnce({
+      content: [{ type: "text", text: "partial" }],
+      stop_reason: "max_tokens",
+    });
+    const config = makeConfig();
+    try {
+      await callLLM(config, "test", {
+        systemPrompt: "test",
+        agentName: "doc-writer",
+      });
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(TruncationError);
+      expect((err as Error).message).toContain("doc-writer");
+    }
+  });
+
+  it("OpenAI TruncationError carries correct agent name and tokens", async () => {
+    openaiCreateMock.mockResolvedValueOnce({
+      choices: [
+        { message: { content: "partial" }, finish_reason: "length" },
+      ],
+    });
+    const config = makeConfig({ provider: "openai", model: "gpt-4.1" });
+    try {
+      await callLLM(config, "test", {
+        systemPrompt: "test",
+        maxTokens: 16384,
+        agentName: "agent-writer",
+      });
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(TruncationError);
+      expect((err as TruncationError).agentName).toBe("agent-writer");
+      expect((err as TruncationError).tokensUsed).toBe(16384);
+    }
   });
 });

@@ -408,12 +408,25 @@ export function summarizeSpec(
     }
   }
 
+  // Prefer structured IR counts when available; fall back to flat harness fields
+  // for pre-v2.11 saved environments that lack the ir field.
+  const counts = spec.ir
+    ? {
+        commandCount: spec.ir.commands.length,
+        ruleCount: spec.ir.rules.length,
+        skillCount: spec.ir.skills.length,
+        agentCount: spec.ir.agents.length,
+      }
+    : {
+        commandCount: Object.keys(spec.harness.commands || {}).length,
+        ruleCount: Object.keys(spec.harness.rules || {}).length,
+        skillCount: Object.keys(spec.harness.skills || {}).length,
+        agentCount: Object.keys(spec.harness.agents || {}).length,
+      };
+
   return {
     toolCount: spec.tools.length,
-    commandCount: Object.keys(spec.harness.commands || {}).length,
-    ruleCount: Object.keys(spec.harness.rules || {}).length,
-    skillCount: Object.keys(spec.harness.skills || {}).length,
-    agentCount: Object.keys(spec.harness.agents || {}).length,
+    ...counts,
     pluginCommands,
     envSetup,
   };

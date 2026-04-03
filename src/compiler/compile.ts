@@ -2,26 +2,23 @@ import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 import { loadConfig, getEnvsDir, ensureDirs } from "../config.js";
-import { SYSTEM_PROMPT, SKELETON_PROMPT, HARNESS_PROMPT, CLARIFICATION_PROMPT } from "./prompt.js";
+import { SYSTEM_PROMPT, SKELETON_PROMPT, CLARIFICATION_PROMPT } from "./prompt.js";
 import { loadRegistry } from "../registry/loader.js";
 import { getCheapModel } from "../providers.js";
 import { callLLM } from "../llm.js";
-import type { EnvironmentSpec, RegistryTool, Clarification, SkeletonSpec, HarnessContent, CompileProgress } from "../types.js";
+import { generatePlan } from "./plan.js";
+import { executePlan } from "./batch.js";
+import { linkHarness } from "./linker.js";
+import { dispatchAgent } from "./agents/dispatch.js";
+import { renderClaudeMd } from "../ir/renderer.js";
 import { generateIntentPatterns } from "../intent/patterns.js";
 import { compileIntentPrompt } from "../intent/prompt-template.js";
 import { renderIntentRouter } from "../intent/router-template.js";
 import { renderIntentLearner } from "../intent/learner-template.js";
-
-function buildUserMessage(intent: string, registry: RegistryTool[]): string {
-  const registrySummary = registry
-    .map(
-      (t) =>
-        `- ${t.id} (${t.type}, tier ${t.tier}, auth: ${t.auth}): ${t.description} [best_for: ${t.best_for.join(", ")}]`
-    )
-    .join("\n");
-
-  return `## User Intent\n\n${intent}\n\n## Available Tool Registry\n\n${registrySummary}\n\nGenerate the EnvironmentSpec JSON now.`;
-}
+import type { EnvironmentSpec, RegistryTool, Clarification, SkeletonSpec, CompileProgress } from "../types.js";
+import type { HarnessIR } from "../ir/types.js";
+import type { AgentTask, AgentResult } from "./agents/types.js";
+import type { BatchProgress } from "./batch.js";
 
 function buildSkeletonMessage(intent: string, registry: RegistryTool[]): string {
   const registrySummary = registry
@@ -32,37 +29,6 @@ function buildSkeletonMessage(intent: string, registry: RegistryTool[]): string 
     .join("\n");
 
   return `## User Intent\n\n${intent}\n\n## Available Tool Registry\n\n${registrySummary}\n\nGenerate the skeleton JSON now.`;
-}
-
-function buildHarnessMessage(intent: string, skeleton: SkeletonSpec, concise?: boolean): string {
-  const skeletonJson = JSON.stringify(skeleton, null, 2);
-  const conciseNote = concise
-    ? "\n\nIMPORTANT: Be concise. Maximum 80 lines for claude_md. Maximum 5 commands. Keep all content brief."
-    : "";
-  return `## User Intent\n\n${intent}\n\n## Project Skeleton\n\n${skeletonJson}\n\nGenerate the harness content JSON now.${conciseNote}`;
-}
-
-function parseSpecResponse(text: string): Omit<EnvironmentSpec, "id" | "intent" | "created_at"> {
-  let cleaned = text.trim();
-  // Strip markdown code fences
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
-  // Try to extract JSON if there's surrounding text
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(
-      "LLM response did not contain valid JSON. Try again or use a different model."
-    );
-  }
-  try {
-    return JSON.parse(jsonMatch[0]);
-  } catch (err) {
-    throw new Error(
-      `Failed to parse LLM response as JSON: ${err instanceof Error ? err.message : String(err)}\n` +
-      `Response started with: ${cleaned.slice(0, 200)}...`
-    );
-  }
 }
 
 function parseSkeletonResponse(text: string): SkeletonSpec {
@@ -88,30 +54,8 @@ function parseSkeletonResponse(text: string): SkeletonSpec {
   }
 }
 
-function parseHarnessResponse(text: string): HarnessContent {
-  let cleaned = text.trim();
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Pass 2 (harness) did not return valid JSON.");
-  }
-  try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (!parsed.claude_md || !parsed.commands) {
-      throw new Error("Harness missing required fields: claude_md, commands");
-    }
-    return parsed as HarnessContent;
-  } catch (err) {
-    throw new Error(
-      `Failed to parse harness JSON: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
-}
-
 function buildSettings(skeleton: SkeletonSpec, registry: RegistryTool[]): Record<string, unknown> {
-  const selectedTools = skeleton.tools
+  const _selectedTools = skeleton.tools
     .map((t) => registry.find((r) => r.id === t.tool_id))
     .filter(Boolean);
 
@@ -207,6 +151,15 @@ function validateSpec(spec: EnvironmentSpec): string[] {
   return warnings;
 }
 
+/**
+ * Compile a natural language intent into a full EnvironmentSpec.
+ *
+ * Uses a multi-agent pipeline:
+ *   Pass 1: LLM generates a SkeletonSpec (tool selection + outline)
+ *   Pass 2: @orchestrator generates a CompilationPlan
+ *   Pass 3: Specialist agents execute in phased batches → HarnessIR, then @linker validates
+ *   Pass 4: Deterministic assembly (settings, MCP, intent routing)
+ */
 export async function compile(
   intent: string,
   onProgress?: (progress: CompileProgress) => void
@@ -238,54 +191,68 @@ export async function compile(
     elapsed: (Date.now() - startTime) / 1000,
   });
 
-  // Pass 2: Harness content (CLAUDE.md + commands + rules + agents)
-  onProgress?.({ phase: 'pass2', status: 'running', message: 'Pass 2: Generating CLAUDE.md, commands, agents...' });
-  const harnessMsg = buildHarnessMessage(intent, skeleton);
-  let harness: HarnessContent;
-  try {
-    const harnessText = await callLLM(config, harnessMsg, {
-      maxTokens: 8192,
-      systemPrompt: HARNESS_PROMPT,
-    });
-    harness = parseHarnessResponse(harnessText);
-  } catch {
-    // Retry with concise mode if Pass 2 fails (likely JSON truncation)
-    onProgress?.({ phase: 'pass2-retry', status: 'warning', message: 'Pass 2: Response too large, retrying in concise mode...' });
-    const retryMsg = buildHarnessMessage(intent, skeleton, true);
-    const retryText = await callLLM(config, retryMsg, {
-      maxTokens: 8192,
-      systemPrompt: HARNESS_PROMPT,
-    });
-    harness = parseHarnessResponse(retryText);
-  }
-  const cmdCount = Object.keys(harness.commands).length;
-  const agentCount = Object.keys(harness.agents ?? {}).length;
-  const ruleCount = Object.keys(harness.rules).length;
+  // Pass 2: Compilation plan (@orchestrator)
+  onProgress?.({ phase: 'plan', status: 'running', message: 'Pass 2: Planning compilation...' });
+  const plan = await generatePlan(intent, skeleton, config);
+  const agentCount = plan.phases.reduce((sum, p) => sum + p.agents.length, 0);
   onProgress?.({
-    phase: 'pass2', status: 'success',
-    message: `Pass 2: Generated ${cmdCount} commands, ${agentCount} agents, ${ruleCount} rules`,
+    phase: 'plan', status: 'success',
+    message: `Pass 2: Compilation plan — ${agentCount} agents across ${plan.phases.length} phases`,
     elapsed: (Date.now() - startTime) / 1000,
   });
 
-  // Pass 3: Settings + MCP config (deterministic, no LLM)
-  onProgress?.({ phase: 'pass3', status: 'running', message: 'Pass 3: Configuring MCP servers & settings...' });
+  // Pass 3: Execute specialist agents → HarnessIR
+  const concurrency = config.auth_type === 'claude-code-oauth' ? 2 : 3;
+  const executeAgent = (task: AgentTask): Promise<AgentResult> => dispatchAgent(task, config, intent, skeleton);
+
+  // Map batch progress to CompileProgress
+  const batchProgress = (bp: BatchProgress): void => {
+    if (bp.status === 'start') {
+      const phaseLabel = bp.phaseId as CompileProgress['phase'];
+      onProgress?.({ phase: phaseLabel, status: 'running', message: `Pass 3 (${bp.phaseId}): Running ${bp.agentCount} agents...` });
+    } else if (bp.status === 'complete') {
+      const phaseLabel = bp.phaseId as CompileProgress['phase'];
+      onProgress?.({ phase: phaseLabel, status: 'success', message: `Pass 3 (${bp.phaseId}): Complete`, elapsed: (Date.now() - startTime) / 1000 });
+    }
+  };
+  const rawIR = await executePlan(plan, executeAgent, concurrency, batchProgress);
+
+  // Link: cross-reference validation
+  onProgress?.({ phase: 'phase-c', status: 'running', message: 'Pass 3c: Cross-reference validation...' });
+  const { ir: linkedIR, report } = linkHarness(rawIR);
+  const ir: HarnessIR = linkedIR;
+  if (report.warnings.length > 0) {
+    for (const w of report.warnings) {
+      onProgress?.({ phase: 'phase-c', status: 'warning', message: `⚠ ${w}` });
+    }
+  }
+  onProgress?.({ phase: 'phase-c', status: 'success', message: 'Pass 3c: Cross-reference validation', elapsed: (Date.now() - startTime) / 1000 });
+
+  // Pass 4: Deterministic assembly (settings, MCP, intents)
+  onProgress?.({ phase: 'assembly', status: 'running', message: 'Pass 4: Configuring MCP servers & settings...' });
   const settings = buildSettings(skeleton, registry);
   const mcpConfig = buildMcpConfig(skeleton, registry);
+
+  // Build command/agent records from IR for intent routing
+  const commandsRecord: Record<string, string> = {};
+  for (const cmd of ir.commands) { commandsRecord[cmd.name] = cmd.content; }
+  const agentsRecord: Record<string, string> = {};
+  for (const agent of ir.agents) { agentsRecord[agent.name] = agent.content; }
 
   // Intent routing: generate patterns, prompt template, and hook scripts
   const projectProfile = {
     language: skeleton.outline.tech_stack[0] ?? 'unknown',
     framework: skeleton.outline.tech_stack[1] ?? 'none',
-    scripts: {} as Record<string, string>, // scripts come from project scanning, not compilation
+    scripts: {} as Record<string, string>,
   };
   const intentPatterns = generateIntentPatterns(
-    harness.commands,
-    harness.agents ?? {},
+    commandsRecord,
+    agentsRecord,
     projectProfile,
   );
   const intentPromptTemplate = compileIntentPrompt(
-    harness.commands,
-    harness.agents ?? {},
+    commandsRecord,
+    agentsRecord,
   );
   const generationTimestamp = new Date().toISOString();
   const intentHooks: Record<string, string> = {};
@@ -294,7 +261,19 @@ export async function compile(
     intentHooks['intent-learner'] = renderIntentLearner();
   }
 
-  onProgress?.({ phase: 'pass3', status: 'success', message: 'Pass 3: Configured MCP servers & settings' });
+  onProgress?.({ phase: 'assembly', status: 'success', message: 'Pass 4: Configured MCP servers & settings' });
+
+  // Populate flat harness fields from IR (backward compatibility)
+  const commands: Record<string, string> = {};
+  for (const cmd of ir.commands) { commands[cmd.name] = cmd.content; }
+  const rules: Record<string, string> = {};
+  for (const rule of ir.rules) { rules[rule.name] = rule.content; }
+  const agents: Record<string, string> = {};
+  for (const agent of ir.agents) { agents[agent.name] = agent.content; }
+  const skills: Record<string, string> = {};
+  for (const skill of ir.skills) { skills[skill.name] = skill.content; }
+  const docs: Record<string, string> = {};
+  for (const doc of ir.docs) { docs[doc.name] = doc.content; }
 
   // Assemble final EnvironmentSpec
   const spec: EnvironmentSpec = {
@@ -305,15 +284,16 @@ export async function compile(
     description: skeleton.description,
     autonomy_level: 1,
     tools: skeleton.tools,
+    ir,
     harness: {
-      claude_md: harness.claude_md,
+      claude_md: renderClaudeMd(ir.meta, ir.sections),
       settings,
       mcp_config: mcpConfig,
-      commands: harness.commands,
-      rules: harness.rules,
-      skills: harness.skills ?? {},
-      agents: harness.agents ?? {},
-      docs: harness.docs,
+      commands,
+      rules,
+      skills,
+      agents,
+      docs,
       hooks: intentHooks,
       intent_patterns: intentPatterns,
       intent_prompt_template: intentPromptTemplate,
@@ -336,6 +316,12 @@ export async function compile(
   return spec;
 }
 
+/**
+ * Generate clarifying questions for an ambiguous intent.
+ *
+ * Uses the cheapest available model to minimize cost. This function
+ * is unrelated to the multi-agent pipeline — it runs before compilation.
+ */
 export async function generateClarifications(
   intent: string,
   onProgress?: (msg: string) => void

@@ -410,41 +410,41 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 **Architecture: Orchestrator → DAG of Specialists → Linker → HarnessIR**
 
 **@orchestrator (LLM planner):**
-- [ ] Reads skeleton + intent, emits `CompilationPlan` (phases, agents, items, dependencies, token budgets)
-- [ ] Decides command/agent/rule granularity based on project complexity
-- [ ] Partitions large compilations into batches (scales to 200+ agents for swarm use cases)
+- [x] Reads skeleton + intent, emits `CompilationPlan` (phases, agents, items, dependencies, token budgets)
+- [x] Decides command/agent/rule granularity based on project complexity
+- [x] Partitions large compilations into batches (scales to 200+ agents for swarm use cases)
 
 **Specialist agents (parallel, typed output):**
-- [ ] `@sections-writer` → `Section[]` (CLAUDE.md content following mandatory template)
-- [ ] `@command-writer` → `CommandNode[]` (`!` shell integration, `$ARGUMENTS`, orchestration prompts)
-- [ ] `@agent-writer` → `AgentNode[]` (YAML frontmatter, `modelRouting`, persona design)
-- [ ] `@rule-writer` → `RuleNode[]` (path-scoped YAML frontmatter, constraint format)
-- [ ] `@doc-writer` → `DocNode[]` (DECISIONS.md, LEARNINGS.md, SPRINT.md templates)
-- [ ] `@skill-writer` → `SkillNode[]` (TDD skill, research skill, etc.)
+- [x] `@sections-writer` → `Section[]` (CLAUDE.md content following mandatory template)
+- [x] `@command-writer` → `CommandNode[]` (`!` shell integration, `$ARGUMENTS`, orchestration prompts)
+- [x] `@agent-writer` → `AgentNode[]` (YAML frontmatter, `modelRouting`, persona design)
+- [x] `@rule-writer` → `RuleNode[]` (path-scoped YAML frontmatter, constraint format)
+- [x] `@doc-writer` → `DocNode[]` (DECISIONS.md, LEARNINGS.md, SPRINT.md templates)
+- [x] `@skill-writer` → `SkillNode[]` (TDD skill, research skill, etc.)
 
 **Cross-reference validation:**
-- [ ] `@linker` validates `@agent` mentions in commands, command references in agents, rule scope coverage
-- [ ] Patches broken cross-references before assembly
+- [x] `@linker` validates `@agent` mentions in commands, command references in agents, rule scope coverage
+- [x] Patches broken cross-references before assembly
 
 **Batch execution engine:**
-- [ ] `executePlan()` with topological phase ordering and concurrency control
-- [ ] Reuses `runWithConcurrency` pattern from evolve runner
-- [ ] Configurable concurrency: 3-4 (API key), 1-2 (OAuth), via `--concurrency` flag
+- [x] `executePlan()` with topological phase ordering and concurrency control
+- [x] Reuses `runWithConcurrency` pattern from evolve runner
+- [x] Configurable concurrency: 3 (API key), 2 (OAuth)
 
 **HarnessIR as compilation output:**
-- [ ] `compile()` produces `HarnessIR` directly (not flat JSON strings)
-- [ ] `EnvironmentSpec.harness` updated to reference `HarnessIR`
-- [ ] Adapters (claude-code, hermes-agent) consume `HarnessIR` via renderer
-- [ ] Evolve loop receives `HarnessIR` directly from compilation (no re-parse)
+- [x] `compile()` produces `HarnessIR` directly (not flat JSON strings)
+- [x] `EnvironmentSpec.harness` updated to reference `HarnessIR`
+- [x] Adapters (claude-code, hermes-agent) consume `HarnessIR` via renderer
+- [x] Evolve loop receives `HarnessIR` directly from compilation (no re-parse)
 
 **Truncation detection:**
-- [ ] `callLLM()` checks `stop_reason === 'max_tokens'` and throws `TruncationError`
-- [ ] Per-agent retry with increased budget or batch splitting
+- [x] `callLLM()` checks `stop_reason === 'max_tokens'` and throws `TruncationError`
+- [x] Per-agent retry with increased budget or batch splitting
 
 **UX: Multi-phase progress display:**
-- [ ] Phase-by-phase progress (Pass 2 plan → Pass 3a parallel → Pass 3b parallel → Pass 3c linker)
-- [ ] Per-agent retry visibility (`⚠ @agent-writer truncated, retrying...`)
-- [ ] Individual agent failure isolation (one agent fails ≠ whole compilation fails)
+- [x] Phase-by-phase progress (Pass 2 plan → Pass 3a parallel → Pass 3b parallel → Pass 3c linker)
+- [x] Per-agent retry visibility (`⚠ @agent-writer truncated, retrying...`)
+- [ ] Individual agent failure isolation (one agent fails ≠ whole compilation fails) — deferred to v2.12
 
 ### v2.12.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)

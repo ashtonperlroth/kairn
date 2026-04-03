@@ -7,6 +7,39 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.11.0] — 2026-04-02
+
+### Added
+- **Multi-agent compilation pipeline** — replaced monolithic Pass 2 LLM call with orchestrated specialist agents. Eliminates the JSON truncation bug (`Unterminated string at position 25609`) and produces higher-quality harnesses
+- **@orchestrator** (`src/compiler/plan.ts`) — LLM planner that reads skeleton + intent and emits a `CompilationPlan` with phased agent tasks, dependency ordering, and per-agent token budgets. Falls back to deterministic plan on LLM failure
+- **6 specialist agents** — each produces typed HarnessIR nodes:
+  - `@sections-writer` → `Section[]` (CLAUDE.md sections)
+  - `@command-writer` → `CommandNode[]` (with batching for 10+ commands)
+  - `@agent-writer` → `AgentNode[]` (with modelRouting, batching for 8+ agents)
+  - `@rule-writer` → `RuleNode[]` (path-scoped, mandatory security/continuity)
+  - `@doc-writer` → `DocNode[]` (DECISIONS, LEARNINGS, SPRINT templates)
+  - `@skill-writer` → `SkillNode[]` (TDD patterns)
+- **@linker** (`src/compiler/linker.ts`) — cross-reference validation that detects broken `@agent` mentions in commands and `/project:command` references in agents, auto-patches broken refs, and injects mandatory help/security/continuity if missing
+- **Batch execution engine** (`src/compiler/batch.ts`) — `executePlan()` with topological phase ordering, `runWithConcurrency()` for parallel agent execution, and TruncationError retry (doubles max_tokens, max 1 retry per agent)
+- **Truncation detection** — `callLLM()` now checks `stop_reason === 'max_tokens'` (Anthropic) and `finish_reason === 'length'` (OpenAI), throwing `TruncationError` instead of returning partial JSON
+- **HarnessIR on EnvironmentSpec** — `compile()` now sets `ir?: HarnessIR` on the returned spec, providing typed access alongside backward-compatible flat `harness.*` fields
+- **Multi-phase progress display** — compilation shows plan summary, Phase A/B/C progress with agent counts, and per-agent retry warnings
+- 247 new tests (1183 total, up from 936)
+
+### Changed
+- `compile()` flow: Pass 1 (skeleton, unchanged) → Pass 2 (@orchestrator plan) → Pass 3 (specialist agents + @linker) → Pass 4 (deterministic assembly)
+- `HARNESS_PROMPT` removed from `src/compiler/prompt.ts` — replaced by per-agent system prompts
+- `EnvironmentSpec` type updated with optional `ir?: HarnessIR` field
+- `CompileProgress.phase` extended with `'plan' | 'phase-a' | 'phase-b' | 'phase-c' | 'assembly'`
+- `estimateTime()` updated for 3-pass pipeline (orchestrator + parallel phases + linker)
+- `summarizeSpec()` now prefers IR counts when `spec.ir` is available
+- Concurrency: 3 for API key users, 2 for OAuth users
+
+### Fixed
+- **JSON truncation bug** — Pass 2 no longer produces a single ~16K token JSON blob. Each specialist stays within its token budget (2048-4096), eliminating truncation failures entirely
+
+---
+
 ## [2.10.0] — 2026-04-02
 
 ### Added

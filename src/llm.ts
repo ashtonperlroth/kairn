@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { getProviderName, getBaseURL } from "./providers.js";
 import { getAccessToken } from "./auth/keychain.js";
+import { TruncationError } from "./compiler/agents/types.js";
 import type { KairnConfig } from "./types.js";
 
 /**
@@ -65,13 +66,15 @@ export function classifyError(err: unknown, provider: string): string {
  *
  * @param config - Kairn configuration with provider, API key, and model
  * @param userMessage - The user message to send
- * @param options - Must include `systemPrompt`; `maxTokens` defaults to 8192
+ * @param options - Must include `systemPrompt`; `maxTokens` defaults to 8192;
+ *   `agentName` is used in TruncationError if the response is truncated
  * @returns The text response from the LLM
+ * @throws {TruncationError} When the response is cut short by the token limit
  */
 export async function callLLM(
   config: KairnConfig,
   userMessage: string,
-  options: { maxTokens?: number; systemPrompt: string; jsonMode?: boolean; cacheControl?: boolean }
+  options: { maxTokens?: number; systemPrompt: string; jsonMode?: boolean; cacheControl?: boolean; agentName?: string }
 ): Promise<string> {
   const maxTokens = options.maxTokens ?? 8192;
   const { systemPrompt } = options;
@@ -107,12 +110,24 @@ export async function callLLM(
           : systemPrompt,
         messages,
       });
+
+      if (response.stop_reason === "max_tokens") {
+        const agentLabel = options.agentName ?? "unknown";
+        throw new TruncationError(
+          `Response truncated at ${maxTokens} tokens. Agent: ${agentLabel}`,
+          { agentName: agentLabel, tokensUsed: maxTokens },
+        );
+      }
+
       const textBlock = response.content.find((block) => block.type === "text");
       if (!textBlock || textBlock.type !== "text") {
         throw new Error("No text response from compiler LLM");
       }
       return textBlock.text;
     } catch (err) {
+      if (err instanceof TruncationError) {
+        throw err;
+      }
       throw new Error(classifyError(err, providerName));
     }
   }
@@ -133,12 +148,24 @@ export async function callLLM(
       ],
       ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
     });
+
+    if (response.choices[0]?.finish_reason === "length") {
+      const agentLabel = options.agentName ?? "unknown";
+      throw new TruncationError(
+        `Response truncated at ${maxTokens} tokens. Agent: ${agentLabel}`,
+        { agentName: agentLabel, tokensUsed: maxTokens },
+      );
+    }
+
     const text = response.choices[0]?.message?.content;
     if (!text) {
       throw new Error("No text response from compiler LLM");
     }
     return text;
   } catch (err) {
+    if (err instanceof TruncationError) {
+      throw err;
+    }
     throw new Error(classifyError(err, providerName));
   }
 }

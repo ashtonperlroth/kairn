@@ -1,4 +1,5 @@
 import type { IntentPattern } from './intent/types.js';
+import type { HarnessIR } from './ir/types.js';
 
 export type LLMProvider =
   | "anthropic"
@@ -37,6 +38,7 @@ export interface EnvironmentSpec {
   created_at: string;
   autonomy_level: AutonomyLevel;
   tools: ToolSelection[];
+  ir?: HarnessIR;
   harness: {
     claude_md: string;
     settings: Record<string, unknown>;
@@ -80,7 +82,7 @@ export interface HarnessContent {
 
 /** Structured progress events emitted during compilation */
 export interface CompileProgress {
-  phase: 'registry' | 'pass1' | 'pass2' | 'pass2-retry' | 'pass3' | 'done';
+  phase: 'registry' | 'pass1' | 'pass2' | 'pass2-retry' | 'pass3' | 'plan' | 'phase-a' | 'phase-b' | 'phase-c' | 'assembly' | 'done';
   status: 'running' | 'success' | 'warning' | 'error';
   message: string;
   detail?: string;
