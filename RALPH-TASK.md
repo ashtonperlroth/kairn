@@ -1,244 +1,258 @@
-# Ralph Loop Task: v2.11.0 — Multi-Agent Compilation Pipeline
+# Ralph Loop Task: v2.12.0 — Generation Quality
 
 ## Context
 
-**Version:** v2.11.0  
-**Branch:** `feature/v2.11.0-multi-agent-compilation`  
-**Design doc:** `docs/design/v2.11-multi-agent-compilation.md`  
-**ROADMAP:** See `ROADMAP.md` → v2.11.0 section  
-**Current state:** main = v2.9.0, feature/v2.10.0 branch ready (936/936 tests pass)
+**Version:** v2.12.0  
+**Branch:** `feature/v2.12.0-generation-quality`  
+**Design doc:** `docs/design/v2.12-generation-quality.md`  
+**Plan:** `PLAN-v2.12.0.md`  
+**ROADMAP:** See `ROADMAP.md` → v2.12.0 section  
+**Current state:** main = v2.11.0 (multi-agent compilation pipeline shipped)
 
 ## Goal
 
-Replace the monolithic Pass 2 LLM call in `src/compiler/compile.ts` with a multi-agent pipeline:
-1. **@orchestrator** reads skeleton + intent → emits `CompilationPlan`
-2. **6 specialist agents** execute in parallel phases → produce typed `HarnessIR` nodes
-3. **@linker** validates cross-references
-4. **Assembly** merges into `HarnessIR` → adapters render to files
+Fix 6 critical generation flaws exposed by first real-world test on an existing Python/Docker ML project (inferix):
 
-This fixes the JSON truncation bug (Unterminated string at position 25629) and produces higher quality harnesses.
+1. `describe` hallucinates project structure for existing repos → gate to `optimize`
+2. Intent router false-positives on common English → replace with CLAUDE.md instructions
+3. Hardcoded Node.js permissions for all projects → tech-stack-aware permissions
+4. Empty scaffold docs waste context → living docs with update hooks
+5. Compilation UX is minimal → animated spinner, richer progress
+6. .env injection contradicts deny rule → honest handling
 
 ## Pre-Steps (before Phase 1)
 
-1. Merge v2.10.0 to main: `git checkout main && git merge feature/v2.10.0-persistent-execution`
-2. Bump version: edit package.json to 2.11.0
-3. Create feature branch: `git checkout -b feature/v2.11.0-multi-agent-compilation`
-4. Commit the design doc, ROADMAP, and README changes already staged
+1. Verify main is at v2.11.0: `git log --oneline -1 main`
+2. Create feature branch: `git checkout -b feature/v2.12.0-generation-quality`
+3. Bump version: edit `package.json` to `"version": "2.12.0"`
+4. Commit: `git commit -am "chore: bump to v2.12.0"`
 
 ## Implementation Plan
 
-Read `docs/design/v2.11-multi-agent-compilation.md` for full design. Here are the ordered steps:
+Read `PLAN-v2.12.0.md` for full specification. Here are the ordered steps:
 
-### Step 1: Types & Infrastructure (parallel-safe)
-**Files:** `src/compiler/agents/types.ts`, `src/llm.ts`
+### Step 1: Existing-Repo Detection in `describe` (parallel-safe)
+**Files:** `src/commands/describe.ts`
 
-1. Create `src/compiler/agents/types.ts` with:
-   - `CompilationPlan` interface (project_context, phases[])
-   - `CompilationPhase` interface (id, agents[], dependsOn[])
-   - `AgentTask` interface (agent name, items[], context_hint?, max_tokens)
-   - `AgentResult` discriminated union (sections | commands | agents | rules | docs | skills)
-   - `TruncationError` class extending Error
+1. After config check (line ~30), before intent input:
+   - List files in `process.cwd()` using `fs.readdir()`
+   - Check for existence of: `package.json`, `pyproject.toml`, `requirements.txt`, `Cargo.toml`, `go.mod`, `Gemfile`, `Dockerfile`, `docker-compose.yml`
+   - Check for directories: `src/`, `lib/`, `app/`, `api/`
+   - Count non-hidden files
+   - If any config file found AND >5 non-hidden files → existing repo
+2. If detected, print message and offer confirm prompt:
+   ```
+   This looks like an existing project with source code.
+   For the best results, use: kairn optimize
+   ? Run kairn optimize instead? [Y/n]
+   ```
+3. If confirmed: import `optimizeCommand` from `./optimize.js` and call `optimizeCommand.parseAsync([])`
+4. If declined: continue with describe normally
 
-2. In `src/llm.ts`:
-   - After getting Anthropic response, check `response.stop_reason === 'max_tokens'`
-   - If truncated, throw `TruncationError` with agent name and tokens used
-   - Same for OpenAI: check `response.choices[0].finish_reason === 'length'`
+**Tests:** `src/commands/__tests__/describe-hooks.test.ts` — test detection heuristic with mock file systems  
+**Commit:** `feat(describe): detect existing repos and redirect to optimize`
 
-**Tests:** `src/compiler/agents/__tests__/types.test.ts` — type validation, TruncationError behavior  
-**Commit:** `feat(compiler): add multi-agent types and truncation detection`
+### Step 2: Remove Intent Routing Infrastructure (parallel-safe)
+**Files:** `src/compiler/compile.ts`, `src/adapter/claude-code.ts`
 
-### Step 2: Batch Execution Engine (parallel-safe)
-**Files:** `src/compiler/batch.ts`
+1. In `compile.ts`:
+   - Remove imports: `generateIntentPatterns`, `compileIntentPrompt`, `renderIntentRouter`, `renderIntentLearner`
+   - Remove the intent routing block (lines ~242-262): `generateIntentPatterns()`, `compileIntentPrompt()`, `renderIntentRouter()`, `renderIntentLearner()`
+   - Remove `intentHooks` from spec assembly
+   - Remove `intent_patterns` and `intent_prompt_template` from harness
+   - In `buildSettings()`: remove the `UserPromptSubmit` hooks array entirely
+   - In `buildSettings()`: remove the `SessionStart` hook for `intent-learner.mjs`
 
-1. Create `executePlan()` function:
-   - Takes `CompilationPlan`, `KairnConfig`, `concurrency: number`, `onProgress`
-   - Topologically sorts phases by `dependsOn`
-   - For each phase, runs agents with `runWithConcurrency` (import from evolve or reimplement)
-   - Merges `AgentResult[]` into a growing `HarnessIR` (using `createEmptyIR()`)
-   - Returns complete `HarnessIR`
+2. In `claude-code.ts` (or whichever adapter writes hooks to disk):
+   - Stop writing `intent-router.mjs` and `intent-learner.mjs` to `.claude/hooks/`
+   - Stop writing `intent-log.jsonl` and `intent-promotions.jsonl`
 
-2. Create `runWithConcurrency<T>()` if not importable from evolve:
-   - Takes array of `() => Promise<T>`, concurrency limit
-   - Returns `T[]` preserving order
+3. Do NOT delete `src/intent/` yet — just disconnect it. We'll clean up in a later step.
 
-**Tests:** `src/compiler/__tests__/batch.test.ts` — phase ordering, concurrency, error propagation, dependency validation  
-**Commit:** `feat(compiler): batch execution engine with concurrency control`
+**Tests:** Update `src/commands/__tests__/describe-hooks.test.ts` — verify no intent hooks in output  
+**Commit:** `refactor(compile): remove intent routing from generation pipeline`
 
-### Step 3: @orchestrator Agent
-**Files:** `src/compiler/plan.ts`
+### Step 3: Add "Available Commands" Section to CLAUDE.md
+**Files:** `src/ir/renderer.ts`
 
-1. Create `generatePlan()` function:
-   - System prompt: "You are the Kairn compilation planner. Given a project skeleton and user intent, produce a CompilationPlan that determines what sections, commands, agents, rules, docs, and skills to generate, organized into dependency phases."
-   - Input: intent string, skeleton (from Pass 1)
-   - Output: `CompilationPlan` (parsed from LLM JSON response)
-   - Max tokens: 2048
-   - Include the list of standard sections (Purpose, Tech Stack, Commands, Architecture, Conventions, Key Commands, Output, Verification, Known Gotchas, Debugging, Git Workflow, Engineering Standards, Tool Usage Policy, Code Philosophy, First Turn Protocol, Sprint Contract, Completion Standards)
-   - Include the list of standard commands, agents based on autonomy level
-   - Let the orchestrator decide which are relevant and how to phase them
+1. In `renderClaudeMd()`, after rendering all sections:
+   - If IR has commands, generate an "## Available Commands" section
+   - List each command with its name and first-line description:
+     ```markdown
+     ## Available Commands
+     When the user explicitly asks to run a workflow, use the appropriate command:
+     - `/project:build` — Build the Docker image
+     - `/project:test` — Run the full test suite
+     ...
+     Only route when the user's clear intent is to execute a workflow.
+     Never route questions, discussions, or code reviews.
+     ```
+   - Extract description from first non-heading line of each command's content
 
-2. Fallback: if LLM call fails, generate a default plan deterministically from skeleton fields
+2. This section is generated deterministically from IR — no LLM needed.
 
-**Tests:** `src/compiler/__tests__/plan.test.ts` — plan generation for simple/complex/research/content projects  
-**Commit:** `feat(compiler): @orchestrator compilation planner`
+**Tests:** `src/ir/__tests__/renderer.test.ts` — verify "Available Commands" section appears with correct commands  
+**Commit:** `feat(renderer): add Available Commands section to CLAUDE.md`
 
-### Step 4: Specialist Agents — Phase A (no dependencies)
-**Files:** `src/compiler/agents/sections-writer.ts`, `src/compiler/agents/rule-writer.ts`, `src/compiler/agents/doc-writer.ts`
+### Step 4: Tech-Stack-Aware Permissions
+**Files:** `src/compiler/compile.ts`
 
-For each agent:
-1. Focused system prompt (500-1000 tokens) with format-specific conventions
-2. `generate*()` function taking intent, skeleton, plan context
-3. JSON output parsed into typed IR nodes
-4. Retry with higher max_tokens on `TruncationError`
+1. Refactor `buildSettings()`:
+   - Replace hardcoded `allow` list with dynamic derivation
+   - Always include: `"Read"`, `"Write"`, `"Edit"`
+   - Check `skeleton.outline.tech_stack` for each language/tool:
+     - Python detected → add `Bash(python *)`, `Bash(pip *)`, `Bash(pytest *)`, `Bash(uv *)`
+     - TypeScript/JavaScript/Node → add `Bash(npm run *)`, `Bash(npx *)`
+     - Rust → add `Bash(cargo *)`
+     - Go → add `Bash(go *)`
+     - Ruby → add `Bash(bundle *)`, `Bash(rake *)`
+     - Docker → add `Bash(docker *)`, `Bash(docker compose *)`
+   - If no language matched, include a conservative default set
 
-**@sections-writer:**
-- System prompt: CLAUDE.md template rules, section ordering, mandatory structure, line budgets
-- Input: project_context, tech_stack, autonomy_level, section list from plan
-- Output: `Section[]` (with id, heading, content, order)
-- Max tokens: 4096
+2. Update PostToolUse formatter hook:
+   - Existing: adds prettier hook when TS/JS detected (keep this)
+   - New: add ruff/black hook when Python detected:
+     ```json
+     {
+       "matcher": "Edit|Write",
+       "hooks": [{
+         "type": "command",
+         "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty') && [ -n \"$FILE\" ] && [[ \"$FILE\" == *.py ]] && ruff format \"$FILE\" 2>/dev/null || true"
+       }]
+     }
+     ```
 
-**@rule-writer:**
-- System prompt: path-scoped YAML frontmatter syntax, security baseline, constraint format
-- Input: project_context, tech_stack, rule list from plan
-- Output: `RuleNode[]` (with name, paths?, content)
-- Max tokens: 2048
+**Tests:** `src/compiler/__tests__/compile.test.ts` — test permissions for Python, Node, Go, Docker, mixed projects  
+**Commit:** `feat(compile): tech-stack-aware permissions and formatter hooks`
 
-**@doc-writer:**
-- System prompt: template structures, acceptance criteria format
-- Input: project_context, doc list from plan
-- Output: `DocNode[]` (DECISIONS.md, LEARNINGS.md, SPRINT.md)
-- Max tokens: 2048
+### Step 5: Honest .env Handling
+**Files:** `src/compiler/compile.ts`
 
-**Tests:** `src/compiler/agents/__tests__/sections-writer.test.ts`, etc. — mock callLLM, verify output types  
-**Commit:** `feat(compiler): Phase A specialist agents (sections, rules, docs)`
+1. In `buildSettings()`:
+   - Remove the SessionStart hook that injects .env into CLAUDE_ENV_FILE
+   - Keep the SessionStart welcome hook (the `.toured` check)
+   - Make `Read(./.env)` deny conditional:
+     - If `skeleton.tools.some(t => t.auth === 'env-key')` or skeleton indicates env vars → do NOT deny `.env`
+     - Otherwise → keep `Read(./.env)` in deny list
 
-### Step 5: Specialist Agents — Phase B (depends on Phase A)
-**Files:** `src/compiler/agents/command-writer.ts`, `src/compiler/agents/agent-writer.ts`, `src/compiler/agents/skill-writer.ts`
+2. In `renderClaudeMd()` (via renderer.ts):
+   - If project uses env vars, add a section:
+     ```markdown
+     ## Environment Variables
+     This project uses environment variables. Expected:
+     - `DATABASE_URL` — Database connection string
+     - `API_KEY` — External service API key
+     Set these in your shell before starting Claude.
+     ```
+   - Populated from skeleton's tool requirements and .env.example keys (from scanner)
 
-**@command-writer:**
-- System prompt: `!` shell integration, `$ARGUMENTS`, orchestration patterns, command format
-- Input: project_context, command list from plan, Section[] from Phase A (for context)
-- Output: `CommandNode[]` (with name, description, content)
-- Max tokens: 4096 (or batched if >10 commands)
+**Tests:** Verify .env injection hook absent, deny rule conditional  
+**Commit:** `fix(compile): remove .env injection, make deny rule honest`
 
-**@agent-writer:**
-- System prompt: YAML frontmatter conventions (`modelRouting`, `disallowedTools`), persona design, model tiering
-- Input: project_context, agent list from plan, RuleNode[] from Phase A (for scope)
-- Output: `AgentNode[]` (with name, model?, modelRouting?, content)
-- Max tokens: 4096 (or batched if >8 agents)
+### Step 6: Living Docs
+**Files:** `src/adapter/claude-code.ts`, `src/compiler/compile.ts`, `src/compiler/agents/doc-writer.ts`
 
-**@skill-writer:**
-- System prompt: SKILL.md format, 3-phase TDD patterns
-- Input: project_context, skill list from plan
-- Output: `SkillNode[]`
-- Max tokens: 2048
+1. In `claude-code.ts` → `writeEnvironment()`:
+   - Before writing each doc file, check if content matches placeholder pattern:
+     - Contains `(Add decisions here as they are made)` or `(Add learnings here as they are discovered)`
+     - Or total non-header content < 50 characters
+   - If placeholder: skip writing this file
 
-**Tests:** `src/compiler/agents/__tests__/command-writer.test.ts`, etc.  
-**Commit:** `feat(compiler): Phase B specialist agents (commands, agents, skills)`
+2. In `buildSettings()` → PostToolUse hooks:
+   - Add a prompt hook for doc updates:
+     ```json
+     {
+       "matcher": "Write|Edit",
+       "hooks": [{
+         "type": "prompt",
+         "prompt": "If this change involves an architectural decision, debugging insight, or task completion, consider updating .claude/docs/. Only update if genuinely useful — don't add noise."
+       }]
+     }
+     ```
 
-### Step 6: @linker (Phase C)
-**Files:** `src/compiler/linker.ts`
+3. In `doc-writer.ts`:
+   - Update system prompt to include: "If you cannot produce meaningful content for a document (only template placeholders), return an empty content field. Empty is better than filler."
 
-1. Cross-reference validation:
-   - Commands that mention `@agent-name` → verify agent exists
-   - Agents that reference `/project:command` → verify command exists
-   - Rules with path scopes → warn if no matching project structure
-   - Commands referencing docs/ files → verify doc exists
+**Tests:** Verify placeholder docs filtered, prompt hook present  
+**Commit:** `feat(compile): living docs with update hooks, filter empty scaffolds`
 
-2. Auto-fix simple issues:
-   - Remove `@` mentions for agents that don't exist
-   - Add missing `/project:help` command if absent
-   - Ensure `security.md` and `continuity.md` rules always present
+### Step 7: Compilation UX
+**Files:** `src/ui.ts`, `src/compiler/batch.ts`
 
-3. Return patched nodes (modified in place or as new copies)
+1. In `createProgressRenderer()`:
+   - Add spinner frames: `const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];`
+   - Replace `◐` with animated frame cycling (increment index in `updateElapsed`)
+   - Add cumulative timer line at top of render output: `Total elapsed: 45s`
+   - Show estimated time remaining: `~30s remaining` (from `estimateTime()` - elapsed)
 
-**Tests:** `src/compiler/__tests__/linker.test.ts` — broken refs detected, auto-fixes applied  
-**Commit:** `feat(compiler): @linker cross-reference validation`
+2. In `batch.ts` → `executePlan()`:
+   - Emit richer progress events including agent names:
+     ```
+     Pass 3 (phase-a): Writing sections, rules, docs... [5s]
+     ```
+   - Include item names from plan in progress message
 
-### Step 7: Compile Pipeline Refactor
-**Files:** `src/compiler/compile.ts`, `src/compiler/prompt.ts`
+**Tests:** Snapshot tests for progress output format  
+**Commit:** `feat(ui): animated spinner, cumulative timer, richer progress`
 
-1. Refactor `compile()`:
-   - Pass 1: unchanged (skeleton)
-   - Pass 2: call `generatePlan()` (new @orchestrator)
-   - Pass 3: call `executePlan()` (new batch engine → specialists → linker)
-   - Pass 4: deterministic assembly (settings, MCP config, intents — reuse existing code)
-   - Return `HarnessIR` wrapped in `EnvironmentSpec`
+### Step 8: Delete Intent Infrastructure
+**Files:** `src/intent/` (entire directory)
 
-2. Remove `HARNESS_PROMPT` from `prompt.ts` (replaced by per-agent prompts)
-   - Keep `SKELETON_PROMPT`, `SYSTEM_PROMPT`, `CLARIFICATION_PROMPT`
-   - Remove `buildHarnessMessage()`, `parseHarnessResponse()`
+1. Delete:
+   - `src/intent/patterns.ts`
+   - `src/intent/prompt-template.ts`
+   - `src/intent/router-template.ts`
+   - `src/intent/learner-template.ts`
+   - `src/intent/types.ts`
+   - `src/intent/__tests__/` (all test files)
 
-3. Update `EnvironmentSpec.harness` type:
-   - Add `ir: HarnessIR` field
-   - Keep existing string fields for backward compat (populated from IR via renderer)
-   - Or: migrate to IR-only if adapters are updated in same PR
+2. Remove any remaining imports of intent modules elsewhere in codebase
 
-**Tests:** Update `src/compiler/__tests__/compile.test.ts`  
-**Commit:** `feat(compiler): multi-agent compilation pipeline`
+3. Update `src/types.ts` if `EnvironmentSpec` still references intent fields:
+   - Remove `intent_patterns` and `intent_prompt_template` from harness type
+   - Or mark as optional with `?`
 
-### Step 8: Adapter Updates
-**Files:** `src/adapter/claude-code.ts`, `src/adapter/hermes-agent.ts`
+**Tests:** `npm run build` succeeds, `npx vitest run` passes (intent tests gone, no broken imports)  
+**Commit:** `refactor: remove intent routing infrastructure (replaced by CLAUDE.md instructions)`
 
-1. Update `writeEnvironment()` in claude-code adapter:
-   - Accept `HarnessIR` (or `EnvironmentSpec` containing it)
-   - Use `renderClaudeMd()`, `renderSettings()`, etc. from `src/ir/renderer.ts`
-   - Fall back to old string-based fields if `ir` is absent (backward compat)
+### Step 9: Integration & Regression
+**Files:** Various
 
-2. Same for hermes-agent adapter
+1. Full regression: `npx vitest run` — all existing tests must pass
+2. Build: `npm run build` — clean build
+3. CLI smoke test: `node dist/cli.js describe --help`
+4. CLI smoke test: `node dist/cli.js optimize --help`
+5. If possible: manual test `kairn describe` in empty dir → should work normally
+6. If possible: manual test `kairn describe` in ~/Projects/inferix → should redirect to optimize
 
-3. Update `src/commands/activate.ts` to handle both old and new EnvironmentSpec shapes
+**Commit:** `test: integration and regression tests for v2.12.0`
 
-**Tests:** Verify adapter output is identical for same input  
-**Commit:** `feat(adapter): consume HarnessIR via renderer`
-
-### Step 9: UX Updates
-**Files:** `src/ui.ts`, `src/commands/describe.ts`
-
-1. Update progress display for multi-agent phases:
-   - Show plan summary after Pass 2
-   - Show Phase A/B/C progress with agent names
-   - Show per-agent retry warnings
-   - Show total compilation time
-
-2. Update time estimate logic for multi-agent (parallel is faster)
-
-**Tests:** Snapshot tests for progress output  
-**Commit:** `feat(ui): multi-phase compilation progress display`
-
-### Step 10: Integration & Regression
-**Files:** Various test files
-
-1. End-to-end: `kairn describe` with mocked LLM → valid `.claude/` directory
-2. Round-trip: compile → render → parse → compare IR
-3. Evolve compatibility: compile → evolve → mutations work
-4. Backward compat: old EnvironmentSpec JSON files still load and activate
-5. Both adapters produce correct output
-
-**Commit:** `test(compiler): integration tests for multi-agent pipeline`
-
-### Step 11: Finalize
+### Step 10: Finalize
 1. `npm run build` — must succeed
 2. `npx vitest run` — all tests pass
-3. Update CHANGELOG.md
-4. `node dist/cli.js describe --help` — verify
-5. Manual smoke test: `kairn describe "Build a Python FastAPI with PostgreSQL"` (with real API key)
-6. `git log --oneline -15` — verify commit history
+3. Update CHANGELOG.md with v2.12.0 entry
+4. `node dist/cli.js --help` — verify commands
+5. `git log --oneline -15` — verify commit history
 
-**Commit:** `chore: bump to v2.11.0, update CHANGELOG`
+**Commit:** `chore: bump to v2.12.0, update CHANGELOG`
 
 ## Key Constraints
 
 - **TDD mandatory:** RED → GREEN → REFACTOR for every step
-- **Strict TypeScript:** no `any`, no `ts-ignore`, .js extensions on imports
+- **Strict TypeScript:** no `any`, no `ts-ignore`, `.js` extensions on imports
 - **Max 3 fix rounds** in review phase
-- **Preserve all 936 existing tests** — none may break
-- **Cost-neutral:** total LLM tokens for compilation should be ≤2x current (prompt caching helps)
+- **Preserve all existing tests** that aren't intent-related — none may break
+- **Backward compatible:** existing environments continue to work
 
 ## Success Criteria
 
-1. `kairn describe` never produces truncated JSON
-2. `compile()` returns `HarnessIR` (not flat strings)
-3. Generated harness quality ≥ current monolithic output
-4. All existing tests pass
-5. Both adapters produce identical file output
-6. `kairn evolve` works on environments compiled with new pipeline
+1. `kairn describe` in existing repo → detects and offers optimize redirect
+2. `kairn describe` in empty dir → works as before
+3. Generated settings.json has NO intent-router/intent-learner hooks
+4. Generated settings.json has correct permissions for detected tech stack
+5. Generated CLAUDE.md has "Available Commands" section listing all commands
+6. No .env injection hook in generated settings.json
+7. Empty template-only docs are NOT written to disk
+8. Compilation shows animated spinner with cumulative timer
+9. All existing tests pass (with intent tests removed)
+10. `npm run build` clean

@@ -446,7 +446,69 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [x] Per-agent retry visibility (`⚠ @agent-writer truncated, retrying...`)
 - [ ] Individual agent failure isolation (one agent fails ≠ whole compilation fails) — deferred to v2.12
 
-### v2.12.0 — Polish & Integration
+### v2.12.0 — Generation Quality ([design doc](docs/design/v2.12-generation-quality.md), [plan](PLAN-v2.12.0.md))
+> First real-world test (inferix — Python/Docker ML project) exposed 6 critical generation flaws. CLAUDE.md hallucinated project structure, intent router false-positives on common English, hardcoded Node.js permissions for Python projects, empty scaffold docs waste context, .env injection contradicts deny rules. Rules and safety hooks praised as strong.
+
+**describe → optimize gating:**
+- [ ] Detect existing repos in `kairn describe` (package.json, requirements.txt, Dockerfile, src/, >5 files)
+- [ ] Show redirect prompt: "This looks like an existing project. Use `kairn optimize` for better results."
+- [ ] Programmatic redirect to `optimizeCommand` on confirm
+
+**Intent routing overhaul:**
+- [ ] Remove `intent-router.mjs`, `intent-learner.mjs`, intent-log/promotions files from generation
+- [ ] Remove `src/intent/` directory (patterns.ts, prompt-template.ts, router-template.ts, learner-template.ts)
+- [ ] Add "Available Commands" section to CLAUDE.md via `renderClaudeMd()` (portable, works with any agent)
+- [ ] Optional strict prompt hook in `settings.json` for Claude Code (autonomy level 2+ only)
+- [ ] Remove UserPromptSubmit regex hook and SessionStart learner hook from `buildSettings()`
+
+**Tech-stack-aware permissions:**
+- [ ] Derive `settings.json` allow-list from skeleton tech_stack (Python→pytest/pip, Go→go, Rust→cargo, Docker→docker)
+- [ ] Remove hardcoded `Bash(npm run *)`, `Bash(npx *)` — only add when Node.js detected
+- [ ] Add PostToolUse formatter hook for Python (ruff/black) when Python detected
+
+**Living docs (not empty scaffolds):**
+- [ ] Filter empty placeholder docs in adapter — skip writing if content matches template filler
+- [ ] Add PostToolUse prompt hook nudging doc updates after meaningful Write/Edit operations
+- [ ] Update `@doc-writer` prompt to produce substantive content or nothing
+
+**Compilation UX improvements:**
+- [ ] Animated spinner frames in `createProgressRenderer()` (braille dots or ora-style)
+- [ ] Cumulative elapsed timer alongside per-phase timer
+- [ ] Richer phase descriptions with agent names ("Writing rules: security, continuity...")
+
+**Honest .env handling:**
+- [ ] Remove SessionStart .env injection hook from all generated settings.json
+- [ ] Make `Read(./.env)` deny conditional: only deny when project doesn't use env vars
+- [ ] Document expected env vars in CLAUDE.md when project needs them
+
+### v2.13.0 — Principal-as-Architect (Creative Evolution) ([design doc](docs/design/v2.13-principal-architect.md))
+> The proposer is gradient descent with a tiny learning rate — it fixes what's broken but can't imagine what's possible. The Principal-as-Architect adds an exploration mode that proposes structural improvements, not just reactive patches. Combined with a cross-repo research protocol, this closes the feedback loop between evolve discoveries and generation templates.
+
+**Architect Proposer (exploration mode):**
+- [ ] New system prompt: "You are an agent environment ARCHITECT. Reimagine the harness structure, not just patch failures."
+- [ ] Higher mutation budget (5-10 per call vs. proposer's 3)
+- [ ] Runs every Nth iteration (configurable, default: every 5th) — interleaved with reactive proposer
+- [ ] Separate scoring: architect proposals evaluated on full task suite before acceptance
+- [ ] Rollback protection: architect proposals held in staging until they prove ≥ current best
+
+**Cross-repo research protocol:**
+- [ ] `kairn evolve research` command — clone N GitHub repos, run evolve on each, catalog convergent mutations
+- [ ] Convergence analyzer: identify mutations that appear in ≥M/N repos (stable patterns)
+- [ ] Research report: which patterns improve scores universally vs. project-specifically
+- [ ] Feed convergent patterns back into generation templates (closing the loop)
+
+**Cross-pollination knowledge base:**
+- [ ] Persist high-scoring patterns across evolve runs in `~/.kairn/knowledge/`
+- [ ] Proposer + architect read knowledge base before proposing (experience replay, cross-repo)
+- [ ] Patterns tagged by project type (Python, Node, Docker, monorepo, etc.)
+
+**Exploration/exploitation schedule:**
+- [ ] Early iterations: architect mode (high mutation budget, bold structural changes)
+- [ ] Middle iterations: reactive proposer (targeted fixes, trace-grounded)
+- [ ] Late iterations: conservative refinement (1-2 mutations, full eval sweep)
+- [ ] Configurable schedule: `--schedule explore-exploit` or `--schedule constant`
+
+### v2.14.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
 - [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
 - [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")
@@ -454,7 +516,6 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [ ] Export evolved environment as a new Kairn template
 - [ ] CI/CD integration guide (run `kairn evolve` in GitHub Actions)
 - [ ] Multi-objective scoring (correctness × efficiency × cost) with weighted aggregation
-- [ ] Search strategy selection: greedy (default), best-of-N, population-based
 
 ---
 
