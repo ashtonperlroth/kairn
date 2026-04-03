@@ -250,4 +250,68 @@ describe('buildOptimizeIntent', () => {
     expect(intent).toContain('deploy');
     expect(intent).toContain('verify');
   });
+
+  describe('packedSource parameter', () => {
+    it('includes sampled source code section when packedSource is provided', () => {
+      const profile = makeProfile();
+      const analysis = makeAnalysis();
+      const packedSource = '// File: src/main.ts\nexport function main() { return 42; }';
+      const intent = buildOptimizeIntent(profile, analysis, packedSource);
+
+      expect(intent).toContain('## Sampled Source Code (reference for project-specific content)');
+      expect(intent).toContain(packedSource);
+    });
+
+    it('does not include source code section when packedSource is undefined', () => {
+      const profile = makeProfile();
+      const analysis = makeAnalysis();
+      const intent = buildOptimizeIntent(profile, analysis);
+
+      expect(intent).not.toContain('## Sampled Source Code');
+    });
+
+    it('does not include source code section when packedSource is empty string', () => {
+      const profile = makeProfile();
+      const analysis = makeAnalysis();
+      const intent = buildOptimizeIntent(profile, analysis, '');
+
+      expect(intent).not.toContain('## Sampled Source Code');
+    });
+
+    it('appends source code section after existing intent content', () => {
+      const profile = makeProfile();
+      const analysis = makeAnalysis();
+      const packedSource = '// packed source content here';
+      const intent = buildOptimizeIntent(profile, analysis, packedSource);
+
+      // The source code section should come after the semantic analysis section
+      const analysisIdx = intent.indexOf('## Semantic Analysis');
+      const sourceIdx = intent.indexOf('## Sampled Source Code');
+      expect(analysisIdx).toBeGreaterThan(-1);
+      expect(sourceIdx).toBeGreaterThan(-1);
+      expect(sourceIdx).toBeGreaterThan(analysisIdx);
+    });
+
+    it('appends source code section after task section when no analysis is provided', () => {
+      const profile = makeProfile();
+      const packedSource = '// packed source content here';
+      const intent = buildOptimizeIntent(profile, null, packedSource);
+
+      // Source code section should still be present even without analysis
+      expect(intent).toContain('## Sampled Source Code (reference for project-specific content)');
+      expect(intent).toContain(packedSource);
+      // It should NOT contain the semantic analysis section
+      expect(intent).not.toContain('## Semantic Analysis');
+    });
+
+    it('preserves full packed source content without truncation', () => {
+      const profile = makeProfile();
+      const analysis = makeAnalysis();
+      // Simulate a large packed source (~60K chars)
+      const largeSource = 'x'.repeat(60000);
+      const intent = buildOptimizeIntent(profile, analysis, largeSource);
+
+      expect(intent).toContain(largeSource);
+    });
+  });
 });

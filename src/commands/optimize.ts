@@ -134,12 +134,19 @@ function buildAuditSummary(profile: ProjectProfile): string {
  * semantic analysis of the source code into a single intent string that the
  * compilation agents use to generate an optimized environment.
  *
+ * When `packedSource` is provided and non-empty, the raw sampled source code
+ * (~60K tokens) is appended as a reference section. This gives compilation
+ * agents direct visibility into the actual codebase rather than relying solely
+ * on the ~1K-token ProjectAnalysis summary.
+ *
  * @param profile - Scanned project profile from the scanner.
  * @param analysis - Optional semantic analysis from the analyzer. When provided,
  *   enriches the intent with purpose, modules, workflows, dataflow, and config keys.
+ * @param packedSource - Optional raw packed source code from Repomix sampling.
+ *   When provided and non-empty, appended as a reference section for agents.
  * @returns The assembled intent string for the compilation pipeline.
  */
-export function buildOptimizeIntent(profile: ProjectProfile, analysis?: ProjectAnalysis | null): string {
+export function buildOptimizeIntent(profile: ProjectProfile, analysis?: ProjectAnalysis | null, packedSource?: string): string {
   const parts: string[] = [];
 
   parts.push("## Project Profile (scanned from actual codebase)\n");
@@ -219,6 +226,10 @@ export function buildOptimizeIntent(profile: ProjectProfile, analysis?: ProjectA
         parts.push(`- \`${key.name}\`: ${key.purpose}`);
       }
     }
+  }
+
+  if (packedSource) {
+    parts.push(`\n\n## Sampled Source Code (reference for project-specific content)\n\n${packedSource}`);
   }
 
   return parts.join("\n");
@@ -351,7 +362,7 @@ export const optimizeCommand = new Command("optimize")
     }
 
     // 4. Compile with scanned profile
-    const intent = buildOptimizeIntent(profile, analysis);
+    const intent = buildOptimizeIntent(profile, analysis, packedSource);
     let spec;
     const spinner = ora({ text: "Compiling optimized environment...", indent: 2 }).start();
     try {
