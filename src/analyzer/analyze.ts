@@ -10,6 +10,7 @@
 
 import type {
   ProjectAnalysis,
+  AnalysisResult,
   AnalysisModule,
   AnalysisWorkflow,
   DataflowEdge,
@@ -98,7 +99,8 @@ Return a single JSON object (no markdown fences, no explanation):
  * @param profile - Pre-scanned project profile from the scanner.
  * @param config - Kairn configuration with provider/model/API key.
  * @param options - Optional flags: `refresh` forces re-analysis even if cache is valid.
- * @returns Structured ProjectAnalysis describing the project.
+ * @returns An AnalysisResult containing both the structured ProjectAnalysis
+ *   and the raw packed source code from Repomix sampling.
  * @throws {AnalysisError} With type `no_entry_point` if no sampling strategy exists for the language.
  * @throws {AnalysisError} With type `empty_sample` if no source files are found.
  * @throws {AnalysisError} With type `llm_parse_failure` if the LLM response is not valid JSON or missing required fields.
@@ -114,7 +116,7 @@ export async function analyzeProject(
   profile: ProjectProfile,
   config: KairnConfig,
   options?: { refresh?: boolean; tokenBudget?: number },
-): Promise<ProjectAnalysis> {
+): Promise<AnalysisResult> {
   // 1. Check cache (unless refresh is forced)
   if (!options?.refresh) {
     const cache = await readCache(dir);
@@ -124,7 +126,10 @@ export async function analyzeProject(
         dir,
       );
       if (isCacheValid(cache, currentHash)) {
-        return cache.analysis;
+        return {
+          analysis: cache.analysis,
+          packedSource: cache.packedSource ?? '',
+        };
       }
     }
   }
@@ -217,7 +222,7 @@ export async function analyzeProject(
 
   // 11. Write cache (including packed source) and return
   await writeCache(dir, analysis, packed.content);
-  return analysis;
+  return { analysis, packedSource: packed.content };
 }
 
 /**

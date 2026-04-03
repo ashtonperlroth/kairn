@@ -261,13 +261,19 @@ export const optimizeCommand = new Command("optimize")
     console.log(ui.section("Codebase Analysis"));
     const analysisSpinner = ora({ text: "Analyzing source code...", indent: 2 }).start();
     let analysis: ProjectAnalysis | null = null;
+    let packedSource = '';
     try {
-      analysis = await analyzeProject(targetDir, profile, config);
+      const result = await analyzeProject(targetDir, profile, config);
+      analysis = result.analysis;
+      packedSource = result.packedSource;
       analysisSpinner.succeed("Codebase analyzed");
       console.log(ui.kv("Purpose:", analysis.purpose));
       console.log(ui.kv("Domain:", analysis.domain));
       console.log(ui.kv("Modules:", analysis.key_modules.map(m => m.name).join(", ") || "none detected"));
       console.log(ui.kv("Workflows:", analysis.workflows.map(w => w.name).join(", ") || "none detected"));
+      if (packedSource) {
+        console.log(ui.kv("Source:", `${packedSource.length.toLocaleString()} chars sampled`));
+      }
     } catch (err) {
       if (err instanceof AnalysisError) {
         analysisSpinner.fail("Analysis failed");

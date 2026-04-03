@@ -105,11 +105,14 @@ export async function analyzeAction(options: AnalyzeOptions): Promise<void> {
       }).start();
 
   let analysis: ProjectAnalysis;
+  let packedSource = '';
   try {
-    analysis = await analyzeProject(targetDir, profile, config, {
+    const result = await analyzeProject(targetDir, profile, config, {
       refresh: options.refresh,
       tokenBudget: options.tokenBudget,
     });
+    analysis = result.analysis;
+    packedSource = result.packedSource;
     analysisSpinner?.succeed(
       options.refresh ? 'Re-analyzed from scratch' : 'Codebase analyzed',
     );
@@ -197,9 +200,12 @@ export async function analyzeAction(options: AnalyzeOptions): Promise<void> {
 
   // Footer
   console.log('');
+  const packedStats = packedSource
+    ? ` \u00B7 ${packedSource.length.toLocaleString()} chars packed`
+    : '';
   console.log(
     chalk.dim(
-      `  Sampled ${analysis.sampled_files.length} files \u00B7 analyzed ${analysis.analyzed_at}`,
+      `  Sampled ${analysis.sampled_files.length} files${packedStats} \u00B7 analyzed ${analysis.analyzed_at}`,
     ),
   );
   console.log(ui.divider());

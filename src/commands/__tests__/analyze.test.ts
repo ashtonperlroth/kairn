@@ -214,7 +214,7 @@ describe('analyzeCommand', () => {
 
       mockLoadConfig.mockResolvedValue(fakeConfig);
       mockScanProject.mockResolvedValue(fakeProfile);
-      mockAnalyzeProject.mockResolvedValue(fakeAnalysis);
+      mockAnalyzeProject.mockResolvedValue({ analysis: fakeAnalysis, packedSource: '## packed source content' });
       mockReadCache.mockResolvedValue(null);
 
       const { analyzeAction } = await import('../analyze.js');
@@ -304,7 +304,7 @@ describe('analyzeCommand', () => {
 
       mockLoadConfig.mockResolvedValue(fakeConfig);
       mockScanProject.mockResolvedValue(fakeProfile);
-      mockAnalyzeProject.mockResolvedValue(fakeAnalysis);
+      mockAnalyzeProject.mockResolvedValue({ analysis: fakeAnalysis, packedSource: '## packed source content' });
       mockReadCache.mockResolvedValue(null);
 
       const { analyzeAction } = await import('../analyze.js');
@@ -374,7 +374,7 @@ describe('analyzeCommand', () => {
 
       mockLoadConfig.mockResolvedValue(fakeConfig);
       mockScanProject.mockResolvedValue(fakeProfile);
-      mockAnalyzeProject.mockResolvedValue(fakeAnalysis);
+      mockAnalyzeProject.mockResolvedValue({ analysis: fakeAnalysis, packedSource: '## packed source content' });
       mockReadCache.mockResolvedValue(null);
 
       const { analyzeAction } = await import('../analyze.js');
@@ -618,7 +618,7 @@ describe('analyzeCommand', () => {
 
       mockLoadConfig.mockResolvedValue(fakeConfig);
       mockScanProject.mockResolvedValue(fakeProfile);
-      mockAnalyzeProject.mockResolvedValue(fakeAnalysis);
+      mockAnalyzeProject.mockResolvedValue({ analysis: fakeAnalysis, packedSource: '## packed source content' });
       mockReadCache.mockResolvedValue({
         analysis: fakeAnalysis,
         content_hash: 'hash',

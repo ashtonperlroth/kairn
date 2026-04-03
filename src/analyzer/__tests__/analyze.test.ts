@@ -17,7 +17,7 @@ import { callLLM } from '../../llm.js';
 import { packCodebase } from '../repomix-adapter.js';
 import { analyzeProject } from '../analyze.js';
 import { AnalysisError } from '../types.js';
-import type { ProjectAnalysis } from '../types.js';
+import type { ProjectAnalysis, AnalysisResult } from '../types.js';
 import type { ProjectProfile } from '../../scanner/scan.js';
 import type { KairnConfig } from '../../types.js';
 import type { RepomixResult } from '../repomix-adapter.js';
@@ -131,28 +131,37 @@ describe('analyzeProject', () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it('returns a valid ProjectAnalysis on successful LLM response', async () => {
+  it('returns an AnalysisResult with both analysis and packedSource', async () => {
     mockPackCodebase.mockResolvedValue(makePackResult());
     mockCallLLM.mockResolvedValue(makeValidLLMResponse());
 
     const profile = makeProfile({ directory: tempDir });
     const config = makeConfig();
 
-    const result = await analyzeProject(tempDir, profile, config);
+    const result: AnalysisResult = await analyzeProject(tempDir, profile, config);
 
-    expect(result.purpose).toBe('CLI tool for compiling agent environments');
-    expect(result.domain).toBe('developer-tools');
-    expect(result.key_modules).toHaveLength(1);
-    expect(result.key_modules[0].name).toBe('compiler');
-    expect(result.workflows).toHaveLength(1);
-    expect(result.architecture_style).toBe('CLI');
-    expect(result.deployment_model).toBe('local');
-    expect(result.dataflow).toHaveLength(1);
-    expect(result.config_keys).toHaveLength(1);
-    expect(result.sampled_files).toEqual(['src/index.ts']);
-    expect(typeof result.content_hash).toBe('string');
-    expect(result.content_hash.length).toBe(64);
-    expect(typeof result.analyzed_at).toBe('string');
+    // Should return the correct shape
+    expect(result).toHaveProperty('analysis');
+    expect(result).toHaveProperty('packedSource');
+
+    // Analysis should be valid
+    const { analysis } = result;
+    expect(analysis.purpose).toBe('CLI tool for compiling agent environments');
+    expect(analysis.domain).toBe('developer-tools');
+    expect(analysis.key_modules).toHaveLength(1);
+    expect(analysis.key_modules[0].name).toBe('compiler');
+    expect(analysis.workflows).toHaveLength(1);
+    expect(analysis.architecture_style).toBe('CLI');
+    expect(analysis.deployment_model).toBe('local');
+    expect(analysis.dataflow).toHaveLength(1);
+    expect(analysis.config_keys).toHaveLength(1);
+    expect(analysis.sampled_files).toEqual(['src/index.ts']);
+    expect(typeof analysis.content_hash).toBe('string');
+    expect(analysis.content_hash.length).toBe(64);
+    expect(typeof analysis.analyzed_at).toBe('string');
+
+    // Packed source should be the raw content from packCodebase
+    expect(result.packedSource).toBe('### src/index.ts\n\nconsole.log("hello");');
   });
 
   it('calls packCodebase with correct include patterns from strategy', async () => {
@@ -310,8 +319,8 @@ describe('analyzeProject', () => {
 
     const result = await analyzeProject(tempDir, profile, config);
 
-    expect(result.purpose).toBe('CLI tool for compiling agent environments');
-    expect(result.domain).toBe('developer-tools');
+    expect(result.analysis.purpose).toBe('CLI tool for compiling agent environments');
+    expect(result.analysis.domain).toBe('developer-tools');
   });
 
   it('writes cache after successful analysis', async () => {
@@ -338,6 +347,54 @@ describe('analyzeProject', () => {
     expect(typeof cached.kairn_version).toBe('string');
   });
 
+  it('returns cached packed source from .kairn-packed-source.txt on cache hit', async () => {
+    const packedContent = '### src/index.ts\n\nconsole.log("cached packed!");';
+    mockPackCodebase.mockResolvedValue(makePackResult({ content: packedContent }));
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({ directory: tempDir });
+    const config = makeConfig();
+
+    // First call: fresh analysis
+    const first = await analyzeProject(tempDir, profile, config);
+    expect(first.packedSource).toBe(packedContent);
+
+    // Reset mocks to verify cache path
+    vi.clearAllMocks();
+
+    // Second call: should use cache — no LLM or packCodebase calls
+    const second = await analyzeProject(tempDir, profile, config);
+
+    expect(mockCallLLM).not.toHaveBeenCalled();
+    expect(mockPackCodebase).not.toHaveBeenCalled();
+    expect(second.packedSource).toBe(packedContent);
+    expect(second.analysis.purpose).toBe(first.analysis.purpose);
+  });
+
+  it('returns empty string for packedSource when cache exists but packed source file is missing', async () => {
+    mockPackCodebase.mockResolvedValue(makePackResult());
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({ directory: tempDir });
+    const config = makeConfig();
+
+    // Create a fresh analysis (which writes both cache files)
+    await analyzeProject(tempDir, profile, config);
+
+    // Manually delete the packed source file to simulate a legacy cache
+    await fs.unlink(path.join(tempDir, '.kairn-packed-source.txt'));
+
+    vi.clearAllMocks();
+
+    // Second call: cache hit, but no packed source file
+    const result = await analyzeProject(tempDir, profile, config);
+
+    expect(mockCallLLM).not.toHaveBeenCalled();
+    expect(mockPackCodebase).not.toHaveBeenCalled();
+    expect(result.packedSource).toBe('');
+    expect(result.analysis.purpose).toBe('CLI tool for compiling agent environments');
+  });
+
   it('returns cached analysis when cache is valid and refresh is not set', async () => {
     // First, run the analysis to create a valid cache
     mockPackCodebase.mockResolvedValue(makePackResult());
@@ -356,9 +413,9 @@ describe('analyzeProject', () => {
 
     expect(mockCallLLM).not.toHaveBeenCalled();
     expect(mockPackCodebase).not.toHaveBeenCalled();
-    expect(second.purpose).toBe(first.purpose);
-    expect(second.domain).toBe(first.domain);
-    expect(second.content_hash).toBe(first.content_hash);
+    expect(second.analysis.purpose).toBe(first.analysis.purpose);
+    expect(second.analysis.domain).toBe(first.analysis.domain);
+    expect(second.analysis.content_hash).toBe(first.analysis.content_hash);
   });
 
   it('bypasses cache when refresh option is true', async () => {
@@ -392,8 +449,8 @@ describe('analyzeProject', () => {
 
     expect(mockCallLLM).toHaveBeenCalledOnce();
     expect(mockPackCodebase).toHaveBeenCalledOnce();
-    expect(result.purpose).toBe('Updated purpose');
-    expect(result.domain).toBe('updated-domain');
+    expect(result.analysis.purpose).toBe('Updated purpose');
+    expect(result.analysis.domain).toBe('updated-domain');
   });
 
   it('defaults optional arrays to empty when LLM omits them', async () => {
@@ -411,12 +468,12 @@ describe('analyzeProject', () => {
 
     const result = await analyzeProject(tempDir, profile, config);
 
-    expect(result.key_modules).toEqual([]);
-    expect(result.workflows).toEqual([]);
-    expect(result.dataflow).toEqual([]);
-    expect(result.config_keys).toEqual([]);
-    expect(result.architecture_style).toBe('unknown');
-    expect(result.deployment_model).toBe('unknown');
+    expect(result.analysis.key_modules).toEqual([]);
+    expect(result.analysis.workflows).toEqual([]);
+    expect(result.analysis.dataflow).toEqual([]);
+    expect(result.analysis.config_keys).toEqual([]);
+    expect(result.analysis.architecture_style).toBe('unknown');
+    expect(result.analysis.deployment_model).toBe('unknown');
   });
 
   it('writes packed source file alongside analysis cache', async () => {
@@ -427,7 +484,7 @@ describe('analyzeProject', () => {
     const profile = makeProfile({ directory: tempDir });
     const config = makeConfig();
 
-    await analyzeProject(tempDir, profile, config);
+    const result = await analyzeProject(tempDir, profile, config);
 
     // Verify packed source file was written
     const packedPath = path.join(tempDir, '.kairn-packed-source.txt');
@@ -436,5 +493,23 @@ describe('analyzeProject', () => {
 
     const content = await fs.readFile(packedPath, 'utf-8');
     expect(content).toBe(packedContent);
+
+    // Also verify the return value includes packed source
+    expect(result.packedSource).toBe(packedContent);
+  });
+
+  it('returns packed source with custom content from packCodebase', async () => {
+    const customPacked = '## Packed\n\nFile A content\n\nFile B content';
+    mockPackCodebase.mockResolvedValue(makePackResult({ content: customPacked }));
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({ directory: tempDir });
+    const config = makeConfig();
+
+    const result = await analyzeProject(tempDir, profile, config);
+
+    expect(typeof result.packedSource).toBe('string');
+    expect(result.packedSource).toBe(customPacked);
+    expect(result.packedSource.length).toBeGreaterThan(0);
   });
 });

@@ -43,6 +43,17 @@ export interface ConfigKey {
   purpose: string;
 }
 
+/**
+ * Result returned by `analyzeProject()`, containing both the structured
+ * analysis and the raw packed source code for downstream consumers.
+ */
+export interface AnalysisResult {
+  /** Structured analysis of the project's architecture, modules, and workflows. */
+  analysis: ProjectAnalysis;
+  /** Raw packed source code from Repomix sampling. Empty string if unavailable. */
+  packedSource: string;
+}
+
 /** Error thrown during project analysis with a typed error category. */
 export class AnalysisError extends Error {
   constructor(
