@@ -570,7 +570,30 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [x] Mixed eval suite: 50% harness-sensitivity probes (existing), 50% SWE-bench-style substantive tasks (new)
 - [x] Score breakdown in `kairn evolve report`: harness adherence score vs. substantive task score
 
-### v2.16.0 — Polish & Integration
+### v2.16.0 — Multi-Language Monorepo Sampling ([plan](PLAN-v2.16.0.md))
+> The analyzer assumes one language per project. Monorepos with mixed languages (Python API + TypeScript frontend, Go services + JS dashboard) fail with "No sampling strategy for language: unknown" or silently ignore half the codebase. This version makes the entire sampling pipeline language-plural.
+
+**Multi-language detection:**
+- [ ] `detectLanguages()` returns all languages found at root and in immediate subdirectories
+- [ ] `ProjectProfile.languages: string[]` added alongside existing `language` (derived as `languages[0]`)
+- [ ] Subdirectory-level detection with frequency-based ordering
+
+**Strategy merging:**
+- [ ] `mergeStrategies()` combines entry points, domain patterns, config patterns, and exclude patterns from all detected languages
+- [ ] Single-language projects produce a 1-element merge (identical to current behavior)
+- [ ] `analyzeProject()` resolves each language's strategy independently, then merges
+
+**Monorepo-aware scoping:**
+- [ ] Domain patterns scoped to the subdirectory where each language was detected
+- [ ] Entry points scoped to their subdirectory (e.g., `main.py` → `api/main.py`)
+- [ ] Proportional priority hints based on language frequency (more subdirs → higher within-tier priority)
+
+**Downstream compatibility:**
+- [ ] All callers updated from `profile.language` to `profile.languages` where appropriate
+- [ ] LLM prompt: "Analyze this Python/TypeScript project:" (joined language names)
+- [ ] No changes to ProjectAnalysis, HarnessIR, or RepomixResult schemas
+
+### v2.17.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
 - [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
 - [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")
