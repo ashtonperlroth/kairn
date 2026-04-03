@@ -339,7 +339,7 @@ function buildTaskGenerationMessage(
   analysis?: ProjectAnalysis,
 ): string {
   const profileLines = [
-    `Language: ${projectProfile.language ?? "unknown"}`,
+    `Languages: ${projectProfile.languages.length > 0 ? projectProfile.languages.join(', ') : "unknown"}`,
     `Framework: ${projectProfile.framework ?? "none"}`,
     `Scripts: ${Object.entries(projectProfile.scripts).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}`,
     `Key files: ${projectProfile.keyFiles.join(", ") || "none"}`,

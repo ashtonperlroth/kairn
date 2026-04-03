@@ -186,6 +186,7 @@ export interface ResearchProgressEvent {
 // Lightweight project info for task generation
 export interface ProjectProfileSummary {
   language: string | null;
+  languages: string[];
   framework: string | null;
   scripts: Record<string, string>;
   keyFiles: string[];

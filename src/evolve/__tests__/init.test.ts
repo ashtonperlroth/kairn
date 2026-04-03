@@ -276,6 +276,7 @@ describe("buildProjectProfile", () => {
     const profile = await buildProjectProfile(tempDir);
 
     expect(profile.language).toBe("typescript");
+    expect(profile.languages).toEqual(["typescript"]);
   });
 
   it("detects framework from dependencies", async () => {
@@ -375,6 +376,7 @@ describe("buildProjectProfile", () => {
     const profile = await buildProjectProfile(tempDir);
 
     expect(profile.language).toBe("python");
+    expect(profile.languages).toEqual(["python"]);
   });
 
   it("detects Python from requirements.txt", async () => {
@@ -383,6 +385,7 @@ describe("buildProjectProfile", () => {
     const profile = await buildProjectProfile(tempDir);
 
     expect(profile.language).toBe("python");
+    expect(profile.languages).toEqual(["python"]);
   });
 
   it("detects key files in project root", async () => {
@@ -401,6 +404,7 @@ describe("buildProjectProfile", () => {
     const profile = await buildProjectProfile(tempDir);
 
     expect(profile.language).toBeNull();
+    expect(profile.languages).toEqual([]);
     expect(profile.framework).toBeNull();
   });
 

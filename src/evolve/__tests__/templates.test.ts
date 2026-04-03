@@ -27,6 +27,7 @@ function makeConfig(overrides: Partial<KairnConfig> = {}): KairnConfig {
 function makeProfile(overrides: Partial<ProjectProfileSummary> = {}): ProjectProfileSummary {
   return {
     language: "TypeScript",
+    languages: ["TypeScript"],
     framework: "Express",
     scripts: { build: "tsc", test: "vitest run", dev: "tsx watch src/index.ts" },
     keyFiles: ["src/index.ts", "package.json", "tsconfig.json"],

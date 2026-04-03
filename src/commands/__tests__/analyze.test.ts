@@ -153,6 +153,7 @@ describe('analyzeCommand', () => {
         description: 'A test',
         directory: '/tmp/test',
         language: 'TypeScript',
+        languages: ['TypeScript'],
         framework: 'Express',
         typescript: true,
         dependencies: [],
@@ -247,6 +248,74 @@ describe('analyzeCommand', () => {
       expect(output).toContain('Express');
     });
 
+    it('displays multiple languages when profile has multiple languages', async () => {
+      const fakeConfig = {
+        provider: 'anthropic',
+        api_key: 'test-key',
+        model: 'claude-sonnet-4-6',
+        default_runtime: 'claude-code',
+        created_at: new Date().toISOString(),
+      };
+
+      const fakeProfile = {
+        name: 'monorepo',
+        description: 'A monorepo',
+        directory: '/tmp/monorepo',
+        language: 'Python',
+        languages: ['Python', 'TypeScript'],
+        framework: null,
+        typescript: false,
+        dependencies: [],
+        devDependencies: [],
+        scripts: {},
+        hasTests: false,
+        testCommand: null,
+        buildCommand: null,
+        lintCommand: null,
+        hasSrc: false,
+        hasDocker: false,
+        hasCi: false,
+        hasEnvFile: false,
+        envKeys: [],
+        hasClaudeDir: false,
+        existingClaudeMd: null,
+        existingSettings: null,
+        existingMcpConfig: null,
+        existingCommands: [],
+        existingRules: [],
+        existingSkills: [],
+        existingAgents: [],
+        mcpServerCount: 0,
+        claudeMdLineCount: 0,
+        keyFiles: [],
+      };
+
+      const fakeAnalysis = {
+        purpose: 'Multi-language monorepo',
+        domain: 'mixed',
+        key_modules: [],
+        workflows: [],
+        architecture_style: 'monorepo',
+        deployment_model: 'mixed',
+        dataflow: [],
+        config_keys: [],
+        sampled_files: [],
+        content_hash: 'hash',
+        analyzed_at: '2026-04-03T12:00:00.000Z',
+      };
+
+      mockLoadConfig.mockResolvedValue(fakeConfig);
+      mockScanProject.mockResolvedValue(fakeProfile);
+      mockAnalyzeProject.mockResolvedValue({ analysis: fakeAnalysis, packedSource: '' });
+      mockReadCache.mockResolvedValue(null);
+
+      const { analyzeAction } = await import('../analyze.js');
+      await analyzeAction({});
+
+      const output = consoleLogs.join('\n');
+      expect(output).toContain('Python, TypeScript');
+    });
+
     it('outputs raw JSON when --json flag is set', async () => {
       const fakeConfig = {
         provider: 'anthropic',
@@ -261,6 +330,7 @@ describe('analyzeCommand', () => {
         description: '',
         directory: '/tmp/test',
         language: 'TypeScript',
+        languages: ['TypeScript'],
         framework: null,
         typescript: true,
         dependencies: [],
@@ -331,6 +401,7 @@ describe('analyzeCommand', () => {
         description: '',
         directory: '/tmp/test',
         language: 'TypeScript',
+        languages: ['TypeScript'],
         framework: null,
         typescript: true,
         dependencies: [],
@@ -402,6 +473,7 @@ describe('analyzeCommand', () => {
         description: '',
         directory: '/tmp/test',
         language: null,
+        languages: [],
         framework: null,
         typescript: false,
         dependencies: [],
@@ -465,6 +537,7 @@ describe('analyzeCommand', () => {
         description: '',
         directory: '/tmp/test',
         language: null,
+        languages: [],
         framework: null,
         typescript: false,
         dependencies: [],
@@ -525,6 +598,7 @@ describe('analyzeCommand', () => {
         description: '',
         directory: '/tmp/test',
         language: 'TypeScript',
+        languages: ['TypeScript'],
         framework: null,
         typescript: true,
         dependencies: [],
@@ -575,6 +649,7 @@ describe('analyzeCommand', () => {
         description: '',
         directory: '/tmp/test',
         language: 'TypeScript',
+        languages: ['TypeScript'],
         framework: null,
         typescript: true,
         dependencies: [],

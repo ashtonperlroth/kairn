@@ -105,8 +105,28 @@ describe('buildOptimizeIntent', () => {
     const intent = buildOptimizeIntent(profile);
 
     expect(intent).toContain('Project: test-project');
-    expect(intent).toContain('Language: TypeScript');
+    expect(intent).toContain('Languages: TypeScript');
     expect(intent).toContain('Framework: Express');
+  });
+
+  it('displays multiple languages joined by comma in profile summary', () => {
+    const profile = makeProfile({
+      languages: ['Python', 'TypeScript'],
+      language: 'Python',
+    });
+    const intent = buildOptimizeIntent(profile);
+
+    expect(intent).toContain('Languages: Python, TypeScript');
+  });
+
+  it('omits languages line when languages array is empty', () => {
+    const profile = makeProfile({
+      languages: [],
+      language: null,
+    });
+    const intent = buildOptimizeIntent(profile);
+
+    expect(intent).not.toContain('Languages:');
   });
 
   it('includes semantic analysis section when analysis is provided', () => {

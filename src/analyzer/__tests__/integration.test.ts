@@ -222,7 +222,7 @@ describe('buildOptimizeIntent without analysis', () => {
     const intent = buildOptimizeIntent(profile);
 
     expect(intent).toContain('Project: test-project');
-    expect(intent).toContain('Language: typescript');
+    expect(intent).toContain('Languages: typescript');
   });
 });
 
