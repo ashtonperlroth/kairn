@@ -145,6 +145,9 @@ export function getStrategy(language: string | null): SamplingStrategy | null {
     return null;
   }
   const key = language.toLowerCase();
+  // JavaScript uses the TypeScript strategy — same ecosystem, same tooling.
+  // The scanner emits 'JavaScript' when package.json exists without tsconfig.json.
+  if (key === 'javascript') return STRATEGIES['typescript'] ?? null;
   return STRATEGIES[key] ?? null;
 }
 

@@ -27,8 +27,8 @@ function makeProfile(overrides?: Partial<ProjectProfile>): ProjectProfile {
     name: 'test-project',
     description: 'A test project',
     directory: '/tmp/test',
-    language: 'typescript',
-    languages: ['typescript'],
+    language: 'TypeScript',
+    languages: ['TypeScript'],
     framework: null,
     typescript: true,
     dependencies: ['express', 'typescript'],
@@ -222,7 +222,7 @@ describe('buildOptimizeIntent without analysis', () => {
     const intent = buildOptimizeIntent(profile);
 
     expect(intent).toContain('Project: test-project');
-    expect(intent).toContain('Languages: typescript');
+    expect(intent).toContain('Languages: TypeScript');
   });
 });
 

@@ -215,6 +215,11 @@ export async function analyzeProject(
   const languageLocations: LanguageDetection[] = profile.languageLocations
     ?? profile.languages.map(lang => ({ language: lang, subdirs: [] as string[] }));
 
+  // NOTE: resolveStrategy always reads manifests from the project root `dir`.
+  // For monorepo subdirs, the manifest files (pyproject.toml, package.json)
+  // live inside the subdir, not the root — so dynamic entry point resolution
+  // may not find subdir-specific entries. Static patterns after scoping remain
+  // correct. Per-subdir manifest parsing is deferred to v2.17.0.
   const resolvedStrategies = await Promise.all(
     languageLocations.map(async ({ language, subdirs }) => {
       const base = getStrategy(language);
