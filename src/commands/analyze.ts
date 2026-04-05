@@ -102,8 +102,8 @@ export async function analyzeAction(options: AnalyzeOptions): Promise<void> {
   scanSpinner?.succeed('Project scanned');
 
   if (!options.json) {
-    if (profile.language)
-      console.log(ui.kv('Language:', profile.language));
+    if (profile.languages.length > 0)
+      console.log(ui.kv('Languages:', profile.languages.join(', ')));
     if (profile.framework)
       console.log(ui.kv('Framework:', profile.framework));
   }

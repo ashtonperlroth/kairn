@@ -17,7 +17,7 @@ import type {
   ConfigKey,
 } from './types.js';
 import { AnalysisError } from './types.js';
-import { getStrategy, getAlwaysInclude, classifyFilePriority, resolveStrategy } from './patterns.js';
+import { getStrategy, getAlwaysInclude, classifyFilePriority, resolveStrategy, mergeStrategies } from './patterns.js';
 import type { SamplingStrategy } from './patterns.js';
 import { packCodebase } from './repomix-adapter.js';
 import {
@@ -27,7 +27,7 @@ import {
   isCacheValid,
 } from './cache.js';
 import { callLLM } from '../llm.js';
-import type { ProjectProfile } from '../scanner/scan.js';
+import type { ProjectProfile, LanguageDetection } from '../scanner/scan.js';
 import type { KairnConfig } from '../types.js';
 
 // --- LLM output shape validators ---
@@ -57,6 +57,80 @@ function isConfigKey(v: unknown): v is ConfigKey {
 function validateArray<T>(raw: unknown, guard: (v: unknown) => v is T): T[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(guard);
+}
+
+/**
+ * Scope a sampling strategy's patterns to specific subdirectories.
+ *
+ * When a language is detected in subdirectories (not root), its generic domain
+ * patterns (e.g., `src/`, `models/`) need to be prefixed with the subdirectory
+ * path so they match the correct files in a monorepo. Exclude patterns are kept
+ * global since they use `**` globs.
+ *
+ * @param strategy - The resolved sampling strategy.
+ * @param subdirs - Subdirectories where this language was detected. Empty = root level (no scoping).
+ * @returns The scoped strategy, or the original strategy if subdirs is empty.
+ */
+export function scopeStrategyToSubdirs(strategy: SamplingStrategy, subdirs: string[]): SamplingStrategy {
+  if (subdirs.length === 0) return strategy;
+
+  return {
+    ...strategy,
+    entryPoints: subdirs.flatMap(dir =>
+      strategy.entryPoints.map(ep => `${dir}/${ep}`),
+    ),
+    domainPatterns: subdirs.flatMap(dir =>
+      strategy.domainPatterns.map(dp => `${dir}/${dp}`),
+    ),
+    configPatterns: subdirs.flatMap(dir =>
+      strategy.configPatterns.map(cp => `${dir}/${cp}`),
+    ),
+    // excludePatterns: keep global (they use ** globs)
+  };
+}
+
+/**
+ * Compute a rank-based weight for a file based on which language owns it.
+ *
+ * In multi-language monorepos, the language detected in the most subdirectories
+ * is the "primary" language and gets weight 0. The second-most-common gets
+ * weight 1, and so on. This weight is used as a fractional tiebreaker
+ * within the same priority tier (multiplied by 0.1 before adding to the tier).
+ *
+ * For single-language projects or when all languages are detected at root level,
+ * every file gets weight 0 (no adjustment).
+ *
+ * @param filePath - Relative file path (e.g., "api/main.py", "src/index.ts").
+ * @param languageLocations - Language detection results with subdirectory tracking.
+ * @returns An integer rank (0 = primary language, 1 = secondary, etc.).
+ */
+export function getLanguageWeight(filePath: string, languageLocations: LanguageDetection[]): number {
+  // Single language or empty: no adjustment
+  if (languageLocations.length <= 1) return 0;
+
+  // Build a subdir → rank map from languageLocations.
+  // languageLocations is already sorted by frequency (most subdirs first),
+  // so the array index IS the rank.
+  const subdirToRank = new Map<string, number>();
+  for (let rank = 0; rank < languageLocations.length; rank++) {
+    for (const subdir of languageLocations[rank].subdirs) {
+      subdirToRank.set(subdir, rank);
+    }
+  }
+
+  // If no language has subdirs (all root-level), no meaningful tiebreaker
+  if (subdirToRank.size === 0) return 0;
+
+  // Match the file path's first path segment against known subdirs
+  const firstSlash = filePath.indexOf('/');
+  if (firstSlash === -1) {
+    // Root-level file (e.g., "README.md") → primary language weight
+    return 0;
+  }
+
+  const firstSegment = filePath.slice(0, firstSlash);
+  const rank = subdirToRank.get(firstSegment);
+  return rank ?? 0; // Unknown subdir → primary language weight
 }
 
 /**
@@ -91,8 +165,9 @@ Return a single JSON object (no markdown fences, no explanation):
 /**
  * Analyze a project directory using semantic codebase understanding.
  *
- * Samples source files using a language-specific strategy, packs them with
- * repomix, and sends them to an LLM for structured analysis. The result is
+ * Samples source files using language-specific strategies (one per detected
+ * language), merges them into a single unified strategy, packs the codebase
+ * with repomix, and sends to an LLM for structured analysis. The result is
  * cached on disk and reused when the sampled files haven't changed.
  *
  * @param dir - Absolute path to the project directory.
@@ -101,7 +176,7 @@ Return a single JSON object (no markdown fences, no explanation):
  * @param options - Optional flags: `refresh` forces re-analysis even if cache is valid.
  * @returns An AnalysisResult containing both the structured ProjectAnalysis
  *   and the raw packed source code from Repomix sampling.
- * @throws {AnalysisError} With type `no_entry_point` if no sampling strategy exists for the language.
+ * @throws {AnalysisError} With type `no_entry_point` if no sampling strategy exists for any of the detected languages.
  * @throws {AnalysisError} With type `empty_sample` if no source files are found.
  * @throws {AnalysisError} With type `llm_parse_failure` if the LLM response is not valid JSON or missing required fields.
  */
@@ -134,21 +209,36 @@ export async function analyzeProject(
     }
   }
 
-  // 2. Get base language strategy, then enrich with manifest-resolved entry points
-  const baseStrategy = getStrategy(profile.language);
-  if (!baseStrategy) {
+  // 2. Get strategies for all detected languages, resolve each with subdirectory scoping, then merge
+  //    When languageLocations is available, use it to scope patterns to the correct subdirectories.
+  //    Fall back to languages array for backward compatibility with older profiles.
+  const languageLocations: LanguageDetection[] = profile.languageLocations
+    ?? profile.languages.map(lang => ({ language: lang, subdirs: [] as string[] }));
+
+  // NOTE: resolveStrategy always reads manifests from the project root `dir`.
+  // For monorepo subdirs, the manifest files (pyproject.toml, package.json)
+  // live inside the subdir, not the root — so dynamic entry point resolution
+  // may not find subdir-specific entries. Static patterns after scoping remain
+  // correct. Per-subdir manifest parsing is deferred to v2.17.0.
+  const resolvedStrategies = await Promise.all(
+    languageLocations.map(async ({ language, subdirs }) => {
+      const base = getStrategy(language);
+      if (!base) return null;
+      const enriched = await resolveStrategy(dir, base, profile.framework, profile.scripts);
+      return scopeStrategyToSubdirs(enriched, subdirs);
+    }),
+  );
+  const validStrategies = resolvedStrategies.filter((s): s is SamplingStrategy => s !== null);
+
+  if (validStrategies.length === 0) {
     throw new AnalysisError(
-      `No sampling strategy for language: ${profile.language ?? 'unknown'}`,
+      `No sampling strategy for languages: ${profile.languages.join(', ') || 'none detected'}`,
       'no_entry_point',
       'Supported: Python, TypeScript, Go, Rust',
     );
   }
-  const strategy = await resolveStrategy(
-    dir,
-    baseStrategy,
-    profile.framework,
-    profile.scripts,
-  );
+
+  const strategy = mergeStrategies(validStrategies);
 
   // 3. Build include patterns from enriched strategy
   const include = [
@@ -159,11 +249,19 @@ export async function analyzeProject(
   ];
 
   // 4. Pack codebase with repomix (priority-tiered truncation)
+  //    Apply proportional priority hints: within the same tier, files from the
+  //    majority language (most subdirs) get a slight priority boost via a
+  //    fractional weight (e.g., tier 2.0 vs 2.1). This is transparent to
+  //    packCodebase — it just sees numbers and sorts ascending.
   const packed = await packCodebase(dir, {
     include,
     exclude: strategy.excludePatterns,
     maxTokens: options?.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-    prioritize: (filePath: string) => classifyFilePriority(filePath, strategy),
+    prioritize: (filePath: string) => {
+      const baseTier = classifyFilePriority(filePath, strategy);
+      const langWeight = getLanguageWeight(filePath, languageLocations);
+      return baseTier + langWeight * 0.1;
+    },
   });
 
   // 5. Guard: empty sample

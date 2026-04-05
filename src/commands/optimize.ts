@@ -99,7 +99,7 @@ function buildProfileSummary(profile: ProjectProfile): string {
   const lines: string[] = [];
   lines.push(`Project: ${profile.name}`);
   if (profile.description) lines.push(`Description: ${profile.description}`);
-  if (profile.language) lines.push(`Language: ${profile.language}`);
+  if (profile.languages.length > 0) lines.push(`Languages: ${profile.languages.join(', ')}`);
   if (profile.framework) lines.push(`Framework: ${profile.framework}`);
   if (profile.dependencies.length > 0) {
     lines.push(`Dependencies: ${profile.dependencies.join(", ")}`);
@@ -259,7 +259,7 @@ export const optimizeCommand = new Command("optimize")
     scanSpinner.stop();
 
     // 2. Show profile
-    if (profile.language) console.log(ui.kv("Language:", profile.language));
+    if (profile.languages.length > 0) console.log(ui.kv("Languages:", profile.languages.join(', ')));
     if (profile.framework) console.log(ui.kv("Framework:", profile.framework));
     console.log(ui.kv("Dependencies:", String(profile.dependencies.length)));
     if (profile.testCommand) console.log(ui.kv("Tests:", profile.testCommand));

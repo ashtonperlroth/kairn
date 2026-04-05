@@ -7,6 +7,27 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.16.0] — 2026-04-03
+
+### Added
+- **Multi-language detection** (`src/scanner/scan.ts`) — `detectLanguageLocations()` detects all languages at root and in immediate subdirectories, with frequency-based ordering and subdirectory tracking
+- **`ProjectProfile.languages`** — new `string[]` field alongside existing `language` (derived as `languages[0]`); backward compatible
+- **Strategy merging** (`src/analyzer/patterns.ts`) — `mergeStrategies()` unions entry points, domain patterns, config patterns, and exclude patterns from all detected language strategies
+- **Monorepo-aware pattern scoping** (`src/analyzer/analyze.ts`) — domain patterns and entry points scoped to the subdirectory where each language was detected (e.g., `main.py` → `api/main.py`)
+- **Proportional priority hints** — files from the most common language get slight priority boost within the same tier during token budget truncation
+- **JavaScript strategy mapping** — `getStrategy('JavaScript')` maps to the TypeScript strategy (same ecosystem, same tooling)
+- 64 new tests (1642 total, up from 1578)
+
+### Changed
+- `analyzeProject()` resolves strategies for ALL detected languages, merges them, and uses the merged strategy for sampling
+- Display: "Languages: Python, JavaScript" instead of singular "Language: Python"
+- `kairn analyze` and `kairn optimize` show all detected languages
+
+### Fixed
+- Monorepos with mixed languages (Python API + JS frontend) no longer fail with "No sampling strategy for language: unknown"
+
+---
+
 ## [2.15.0] — 2026-04-03
 
 ### Added

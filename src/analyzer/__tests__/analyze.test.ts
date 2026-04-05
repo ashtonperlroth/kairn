@@ -31,7 +31,8 @@ function makeProfile(overrides: Partial<ProjectProfile> = {}): ProjectProfile {
     name: 'test-project',
     description: 'A test project',
     directory: '/tmp/test',
-    language: 'typescript',
+    language: 'TypeScript',
+    languages: ['TypeScript'],
     framework: null,
     typescript: true,
     dependencies: ['commander', 'chalk'],
@@ -225,7 +226,7 @@ describe('analyzeProject', () => {
   });
 
   it('throws AnalysisError with type no_entry_point for unsupported language', async () => {
-    const profile = makeProfile({ language: 'cobol', directory: tempDir });
+    const profile = makeProfile({ language: 'Cobol', languages: ['Cobol'], directory: tempDir });
     const config = makeConfig();
 
     await expect(analyzeProject(tempDir, profile, config)).rejects.toThrow(AnalysisError);
@@ -235,12 +236,12 @@ describe('analyzeProject', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(AnalysisError);
       expect((err as AnalysisError).type).toBe('no_entry_point');
-      expect((err as AnalysisError).message).toContain('cobol');
+      expect((err as AnalysisError).message).toContain('Cobol');
     }
   });
 
-  it('throws AnalysisError with type no_entry_point when language is null', async () => {
-    const profile = makeProfile({ language: null, directory: tempDir });
+  it('throws AnalysisError with type no_entry_point when languages is empty', async () => {
+    const profile = makeProfile({ language: null, languages: [], directory: tempDir });
     const config = makeConfig();
 
     await expect(analyzeProject(tempDir, profile, config)).rejects.toThrow(AnalysisError);
@@ -250,8 +251,99 @@ describe('analyzeProject', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(AnalysisError);
       expect((err as AnalysisError).type).toBe('no_entry_point');
-      expect((err as AnalysisError).message).toContain('unknown');
+      expect((err as AnalysisError).message).toContain('none detected');
     }
+  });
+
+  // --- Multi-language strategy merging ---
+
+  it('merges strategies for multiple languages (Python + TypeScript)', async () => {
+    mockPackCodebase.mockResolvedValue(makePackResult());
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({
+      language: 'Python',
+      languages: ['Python', 'TypeScript'],
+      directory: tempDir,
+    });
+    const config = makeConfig();
+
+    const result = await analyzeProject(tempDir, profile, config);
+
+    // Should succeed (no error thrown)
+    expect(result.analysis.purpose).toBe('CLI tool for compiling agent environments');
+
+    // packCodebase should be called with patterns from BOTH languages
+    const callArgs = mockPackCodebase.mock.calls[0];
+    const opts = callArgs[1];
+    // Python entry points
+    expect(opts.include).toEqual(expect.arrayContaining(['main.py', 'app.py']));
+    // TypeScript entry points
+    expect(opts.include).toEqual(expect.arrayContaining(['src/index.ts', 'src/main.ts']));
+    // Both exclude patterns
+    expect(opts.exclude).toEqual(expect.arrayContaining(['**/__pycache__/**']));
+    expect(opts.exclude).toEqual(expect.arrayContaining(['**/node_modules/**']));
+  });
+
+  it('works with a single language in languages array (backward compat)', async () => {
+    mockPackCodebase.mockResolvedValue(makePackResult());
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({
+      language: 'Python',
+      languages: ['Python'],
+      directory: tempDir,
+    });
+    const config = makeConfig();
+
+    const result = await analyzeProject(tempDir, profile, config);
+    expect(result.analysis.purpose).toBe('CLI tool for compiling agent environments');
+
+    // Should only have Python patterns
+    const callArgs = mockPackCodebase.mock.calls[0];
+    const opts = callArgs[1];
+    expect(opts.include).toEqual(expect.arrayContaining(['main.py', 'app.py']));
+    expect(opts.include).not.toEqual(expect.arrayContaining(['src/index.ts']));
+  });
+
+  it('filters out unsupported languages and uses remaining ones (Python + Cobol)', async () => {
+    mockPackCodebase.mockResolvedValue(makePackResult());
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({
+      language: 'Python',
+      languages: ['Python', 'Cobol'],
+      directory: tempDir,
+    });
+    const config = makeConfig();
+
+    // Should NOT throw — Cobol is filtered out, Python remains
+    const result = await analyzeProject(tempDir, profile, config);
+    expect(result.analysis.purpose).toBe('CLI tool for compiling agent environments');
+
+    // Should only have Python patterns
+    const callArgs = mockPackCodebase.mock.calls[0];
+    const opts = callArgs[1];
+    expect(opts.include).toEqual(expect.arrayContaining(['main.py', 'app.py']));
+  });
+
+  it('sends merged language name in LLM user message', async () => {
+    mockPackCodebase.mockResolvedValue(makePackResult());
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({
+      language: 'Python',
+      languages: ['Python', 'TypeScript'],
+      directory: tempDir,
+      name: 'multi-lang-project',
+    });
+    const config = makeConfig();
+
+    await analyzeProject(tempDir, profile, config);
+
+    const userMessage = mockCallLLM.mock.calls[0][1];
+    expect(userMessage).toContain('Python/TypeScript');
+    expect(userMessage).toContain('multi-lang-project');
   });
 
   it('propagates AnalysisError with type empty_sample when packCodebase throws it', async () => {

@@ -83,6 +83,7 @@ export async function buildProjectProfile(
 ): Promise<ProjectProfileSummary> {
   const profile: ProjectProfileSummary = {
     language: null,
+    languages: [],
     framework: null,
     scripts: {},
     keyFiles: [],
@@ -96,6 +97,7 @@ export async function buildProjectProfile(
     );
     const pkg = JSON.parse(pkgStr) as Record<string, unknown>;
     profile.language = 'typescript';
+    profile.languages = ['typescript'];
 
     if (pkg.scripts && typeof pkg.scripts === 'object') {
       profile.scripts = pkg.scripts as Record<string, string>;
@@ -127,10 +129,12 @@ export async function buildProjectProfile(
     try {
       await fs.access(path.join(projectRoot, 'pyproject.toml'));
       profile.language = 'python';
+      profile.languages = ['python'];
     } catch {
       try {
         await fs.access(path.join(projectRoot, 'requirements.txt'));
         profile.language = 'python';
+        profile.languages = ['python'];
       } catch {
         // Not Python either
       }
