@@ -777,12 +777,7 @@ export async function evolve(
         principalProjectCtx,
       );
 
-      if (principalProposal.mutations.length > evolveConfig.maxMutationsPerIteration) {
-        principalProposal = {
-          ...principalProposal,
-          mutations: principalProposal.mutations.slice(0, evolveConfig.maxMutationsPerIteration),
-        };
-      }
+      // Principal has full history — no mutation cap. Let it propose freely.
 
       const principalIterNum = history.length;
       const principalIterDir = path.join(workspacePath, 'iterations', principalIterNum.toString());

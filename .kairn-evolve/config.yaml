@@ -1,8 +1,0 @@
-model: claude-sonnet-4-6
-proposer_model: claude-opus-4-6
-scorer: pass-fail
-max_iterations: 5
-parallel_tasks: 2
-eval_sample_size: 5
-prune_threshold: 90
-runs_per_task: 1
