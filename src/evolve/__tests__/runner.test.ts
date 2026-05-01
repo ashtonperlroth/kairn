@@ -4,6 +4,7 @@ import path from 'path';
 import {
   snapshotFileList,
   diffFileLists,
+  parseClaudeOutput,
   parseToolCalls,
   runTask,
   spawnClaude,
@@ -210,6 +211,77 @@ describe('parseToolCalls', () => {
   });
 });
 
+// ─── parseClaudeOutput ──────────────────────────────────────────────────────
+
+describe('parseClaudeOutput', () => {
+  it('preserves legacy text output as final text', () => {
+    const result = parseClaudeOutput('plain scorer output\nsecond line');
+
+    expect(result.text).toBe('plain scorer output\nsecond line');
+    expect(result.toolCalls).toEqual([]);
+    expect(result.usage).toBeUndefined();
+  });
+
+  it('parses final text and usage from single JSON result output', () => {
+    const result = parseClaudeOutput(JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: 'Final answer for scoring',
+      usage: {
+        input_tokens: 100,
+        cache_creation_input_tokens: 20,
+        cache_read_input_tokens: 5,
+        output_tokens: 40,
+      },
+    }));
+
+    expect(result.text).toBe('Final answer for scoring');
+    expect(result.usage).toMatchObject({
+      status: 'actual',
+      inputTokens: 125,
+      outputTokens: 40,
+      totalTokens: 165,
+      source: 'claude-cli-json',
+    });
+  });
+
+  it('parses stream-json tool calls, usage, and final text', () => {
+    const lines = [
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: 'Working...' },
+            { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'npm test' } },
+          ],
+          usage: { input_tokens: 10, output_tokens: 6 },
+        },
+      }),
+      JSON.stringify({
+        type: 'result',
+        result: 'Done for scorer',
+        usage: { input_tokens: 30, output_tokens: 12 },
+      }),
+    ].join('\n');
+
+    const result = parseClaudeOutput(lines);
+
+    expect(result.text).toBe('Done for scorer');
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]).toMatchObject({
+      type: 'tool_use',
+      name: 'Bash',
+      input: { command: 'npm test' },
+    });
+    expect(result.usage).toMatchObject({
+      status: 'actual',
+      inputTokens: 30,
+      outputTokens: 12,
+      totalTokens: 42,
+    });
+  });
+});
+
 // ─── spawnClaude ─────────────────────────────────────────────────────────────
 
 describe('spawnClaude', () => {
@@ -303,6 +375,77 @@ describe('spawnClaude', () => {
     try {
       const result = await spawnClaude('test instruction', tempDir, 10);
       expect(result.stdout).toContain('--dangerously-skip-permissions');
+      expect(result.stdout).toContain('--output-format stream-json');
+      expect(result.stdout).toContain('--max-turns 50');
+    } finally {
+      process.env['PATH'] = origPath;
+    }
+  });
+
+  it('accepts model, max turns, and max budget options', async () => {
+    const fakeScript = path.join(fakeBinDir, 'claude');
+    await fs.writeFile(
+      fakeScript,
+      '#!/bin/bash\necho "ARGS: $@"',
+    );
+    await fs.chmod(fakeScript, 0o755);
+
+    const origPath = process.env['PATH'];
+    process.env['PATH'] = `${fakeBinDir}:${origPath}`;
+
+    try {
+      const result = await spawnClaude('test instruction', tempDir, 10, {
+        model: 'claude-sonnet-4-6',
+        maxTurns: 7,
+        maxBudgetUsd: 1.25,
+      });
+
+      expect(result.stdout).toContain('--model claude-sonnet-4-6');
+      expect(result.stdout).toContain('--max-turns 7');
+      expect(result.stdout).toContain('--max-budget-usd 1.25');
+    } finally {
+      process.env['PATH'] = origPath;
+    }
+  });
+
+  it('returns parsed structured stdout while preserving raw stdout', async () => {
+    const fakeScript = path.join(fakeBinDir, 'claude');
+    await fs.writeFile(
+      fakeScript,
+      [
+        '#!/bin/bash',
+        `echo '${JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'tool_use', id: 'toolu_2', name: 'Read', input: { file_path: 'src/index.ts' } },
+            ],
+            usage: { input_tokens: 11, output_tokens: 3 },
+          },
+        })}'`,
+        `echo '${JSON.stringify({
+          type: 'result',
+          result: 'Structured final text',
+          usage: { input_tokens: 20, output_tokens: 9 },
+        })}'`,
+      ].join('\n'),
+    );
+    await fs.chmod(fakeScript, 0o755);
+
+    const origPath = process.env['PATH'];
+    process.env['PATH'] = `${fakeBinDir}:${origPath}`;
+
+    try {
+      const result = await spawnClaude('test instruction', tempDir, 10);
+
+      expect(result.stdout).toBe('Structured final text');
+      expect(result.rawStdout).toContain('"type":"result"');
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.usage).toMatchObject({
+        status: 'actual',
+        inputTokens: 20,
+        outputTokens: 9,
+      });
     } finally {
       process.env['PATH'] = origPath;
     }
@@ -532,6 +675,38 @@ describe('runTask', () => {
     expect(result.cost?.estimatedUSD).toBeGreaterThan(0);
     expect(telemetryFile.usage.status).toBe('estimated');
     expect(telemetryFile.cost.estimatedUSD).toBe(result.cost?.estimatedUSD);
+  });
+
+  it('passes model, turn cap, and budget cap from runner options to claude', async () => {
+    const fakeScript = path.join(fakeBinDir, 'claude');
+    await fs.writeFile(
+      fakeScript,
+      '#!/bin/bash\necho "ARGS: $@"',
+    );
+    await fs.chmod(fakeScript, 0o755);
+
+    const harnessDir = path.join(tempDir, 'harness');
+    await fs.mkdir(harnessDir, { recursive: true });
+    await fs.writeFile(path.join(harnessDir, 'CLAUDE.md'), '# Test');
+
+    const traceDir = path.join(tempDir, 'traces', '0', 'test-task-runner-options');
+    await runTask(
+      makeTask({ id: 'test-task-runner-options' }),
+      harnessDir,
+      traceDir,
+      0,
+      {
+        model: 'claude-sonnet-4-6',
+        maxTurns: 3,
+        maxBudgetUsd: 0.5,
+      },
+    );
+
+    const stdoutLog = await fs.readFile(path.join(traceDir, 'stdout.log'), 'utf-8');
+    expect(stdoutLog).toContain('--output-format stream-json');
+    expect(stdoutLog).toContain('--model claude-sonnet-4-6');
+    expect(stdoutLog).toContain('--max-turns 3');
+    expect(stdoutLog).toContain('--max-budget-usd 0.50');
   });
 
   it('runs setup commands before spawning claude', async () => {

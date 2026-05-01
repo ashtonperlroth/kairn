@@ -117,10 +117,12 @@ export interface TaskResult {
 // Raw output from Claude Code subprocess
 export interface SpawnResult {
   stdout: string;
+  rawStdout?: string;
   stderr: string;
   exitCode: number;
   toolCalls: unknown[];
-  filesChanged: Record<string, 'created' | 'modified' | 'deleted'>;
+  usage?: EvolveTelemetry['usage'];
+  filesChanged?: Record<string, 'created' | 'modified' | 'deleted'>;
 }
 
 // Iteration metadata

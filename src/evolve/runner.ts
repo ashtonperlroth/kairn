@@ -6,9 +6,9 @@ import path from 'path';
 import { copyDir } from './baseline.js';
 import { writeTrace } from './trace.js';
 import { scoreTask } from './scorers.js';
-import { aggregateTelemetry, estimateTelemetry } from './cost.js';
+import { aggregateTelemetry, estimateCost, estimateTelemetry } from './cost.js';
 import type { KairnConfig } from '../types.js';
-import type { Task, TaskResult, Trace, Score, LoopProgressEvent } from './types.js';
+import type { Task, TaskResult, Trace, Score, LoopProgressEvent, SpawnResult } from './types.js';
 import type { EvolveTelemetry } from './cost.js';
 
 const execAsync = promisify(exec);
@@ -20,6 +20,21 @@ export interface RunTaskOptions {
   projectRoot?: string;
   config?: KairnConfig | null;
   model?: string;
+  maxTurns?: number;
+  maxBudgetUsd?: number;
+}
+
+export interface SpawnClaudeOptions {
+  model?: string;
+  maxTurns?: number;
+  maxBudgetUsd?: number;
+  outputFormat?: 'text' | 'json' | 'stream-json';
+}
+
+interface ParsedClaudeOutput {
+  text: string;
+  toolCalls: unknown[];
+  usage?: EvolveTelemetry['usage'];
 }
 
 function normalizeRunTaskOptions(options?: string | RunTaskOptions): RunTaskOptions {
@@ -155,7 +170,7 @@ export async function runTask(
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
 
-  const { projectRoot, config } = normalizeRunTaskOptions(options);
+  const { projectRoot, config, maxTurns, maxBudgetUsd } = normalizeRunTaskOptions(options);
   const model = config?.model ?? (typeof options === 'object' ? options.model : undefined) ?? legacyModel;
   const root = projectRoot ?? process.cwd();
   const { workDir, isWorktree } = await createIsolatedWorkspace(root, harnessPath);
@@ -178,25 +193,30 @@ export async function runTask(
     const filesBefore = await snapshotFileList(workDir);
 
     // Spawn claude CLI
-    const spawnResult = await spawnClaude(task.description, workDir, task.timeout);
+    const spawnResult = await spawnClaude(task.description, workDir, task.timeout, {
+      model,
+      maxTurns,
+      maxBudgetUsd,
+    });
 
     // Diff files to detect changes
     const filesAfter = await snapshotFileList(workDir);
     const filesChanged = diffFileLists(filesBefore, filesAfter);
 
-    // Parse tool calls from JSON output (if available)
-    const toolCalls = parseToolCalls(spawnResult.stdout);
+    const toolCalls = spawnResult.toolCalls;
 
     const completedAt = new Date().toISOString();
     const durationMs = Date.now() - startMs;
-    const telemetry = estimateTelemetry({
-      phase: 'task-execution',
-      model,
-      durationMs,
-      inputText: task.description,
-      outputText: `${spawnResult.stdout}\n${spawnResult.stderr}`,
-      source: 'claude-cli-text-estimate',
-    });
+    const telemetry = spawnResult.usage
+      ? telemetryFromActualUsage(model, durationMs, spawnResult.usage)
+      : estimateTelemetry({
+          phase: 'task-execution',
+          model,
+          durationMs,
+          inputText: task.description,
+          outputText: `${spawnResult.stdout}\n${spawnResult.stderr}`,
+          source: 'claude-cli-text-estimate',
+        });
 
     // Build trace
     const combinedStderr = setupStderr
@@ -250,9 +270,28 @@ export async function spawnClaude(
   instruction: string,
   cwd: string,
   timeoutSec: number,
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  options: SpawnClaudeOptions = {},
+): Promise<SpawnResult> {
   return new Promise((resolve) => {
-    const args = ['--print', '--output-format', 'text', '--max-turns', '50', '--dangerously-skip-permissions'];
+    const outputFormat = options.outputFormat ?? 'stream-json';
+    const maxTurns = Number.isFinite(options.maxTurns) && options.maxTurns && options.maxTurns > 0
+      ? Math.floor(options.maxTurns)
+      : 50;
+    const args = [
+      '--print',
+      '--output-format',
+      outputFormat,
+      '--max-turns',
+      String(maxTurns),
+    ];
+    if (options.model?.trim()) {
+      args.push('--model', options.model.trim());
+    }
+    if (Number.isFinite(options.maxBudgetUsd) && options.maxBudgetUsd && options.maxBudgetUsd > 0) {
+      args.push('--max-budget-usd', formatBudgetUsd(options.maxBudgetUsd));
+    }
+    args.push('--dangerously-skip-permissions');
+
     const child = spawn('claude', args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -276,17 +315,55 @@ export async function spawnClaude(
     child.stdin.end();
 
     child.on('close', (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? 1 });
+      const parsed = parseClaudeOutput(stdout);
+      resolve({
+        stdout: parsed.text,
+        rawStdout: stdout,
+        stderr,
+        exitCode: code ?? 1,
+        toolCalls: parsed.toolCalls,
+        usage: parsed.usage,
+      });
     });
 
     child.on('error', (err) => {
+      const parsed = parseClaudeOutput(stdout);
       resolve({
-        stdout,
+        stdout: parsed.text,
+        rawStdout: stdout,
         stderr: stderr + `\nSpawn error: ${err.message}`,
         exitCode: 1,
+        toolCalls: parsed.toolCalls,
+        usage: parsed.usage,
       });
     });
   });
+}
+
+function formatBudgetUsd(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function telemetryFromActualUsage(
+  model: string,
+  durationMs: number,
+  usage: EvolveTelemetry['usage'],
+): EvolveTelemetry {
+  const inputTokens = usage.inputTokens ?? 0;
+  const outputTokens = usage.outputTokens ?? 0;
+  return {
+    phase: 'task-execution',
+    model,
+    durationMs,
+    usage,
+    cost: {
+      status: 'estimated',
+      estimatedUSD: estimateCost(inputTokens, outputTokens, model),
+      currency: 'USD',
+      source: 'src/evolve/cost.ts',
+      reason: 'Estimated from actual Claude Code token usage and configured model pricing',
+    },
+  };
 }
 
 /**
@@ -363,28 +440,172 @@ export function diffFileLists(
 }
 
 /**
+ * Parse Claude Code structured output while preserving plain text fallback.
+ * Supports both single JSON result output and stream-json/JSONL events.
+ */
+export function parseClaudeOutput(stdout: string): ParsedClaudeOutput {
+  const parsed = parseJsonRecords(stdout);
+  if (parsed.length === 0) {
+    return { text: stdout, toolCalls: [] };
+  }
+
+  const toolCalls = parsed.flatMap((record) => collectToolCalls(record));
+  const text = extractFinalText(parsed) ?? stdout;
+  const usage = extractUsage(parsed);
+
+  return usage ? { text, toolCalls, usage } : { text, toolCalls };
+}
+
+/**
  * Try to parse tool calls from claude output.
- * Looks for JSON lines containing tool_use type or tool_name field.
  * Falls back to empty array if output is plain text.
  */
 export function parseToolCalls(stdout: string): unknown[] {
+  return parseClaudeOutput(stdout).toolCalls;
+}
+
+function parseJsonRecords(stdout: string): unknown[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+
   try {
-    const lines = stdout.split('\n').filter((l) => l.trim());
-    const toolCalls: unknown[] = [];
-    for (const line of lines) {
-      try {
-        const obj = JSON.parse(line) as Record<string, unknown>;
-        if (obj.type === 'tool_use' || obj.tool_name) {
-          toolCalls.push(obj);
-        }
-      } catch {
-        // Not JSON, skip
-      }
-    }
-    return toolCalls;
+    return [JSON.parse(trimmed) as unknown];
   } catch {
-    return [];
+    // Not a single JSON document; try newline-delimited JSON records.
   }
+
+  const records: unknown[] = [];
+  for (const line of stdout.split('\n')) {
+    const candidate = line.trim();
+    if (!candidate) continue;
+    try {
+      records.push(JSON.parse(candidate) as unknown);
+    } catch {
+      // Legacy text or log line mixed into JSONL output.
+    }
+  }
+  return records;
+}
+
+function collectToolCalls(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectToolCalls(item));
+  }
+  if (!isRecord(value)) return [];
+
+  const nested = Object.values(value).flatMap((item) => collectToolCalls(item));
+  if (isToolCall(value)) {
+    return [value, ...nested];
+  }
+  return nested;
+}
+
+function isToolCall(value: Record<string, unknown>): boolean {
+  return (
+    value['type'] === 'tool_use'
+    || typeof value['tool_name'] === 'string'
+    || (typeof value['name'] === 'string' && isRecord(value['input']))
+  );
+}
+
+function extractFinalText(records: unknown[]): string | undefined {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const directResult = readStringPath(records[i], ['result']);
+    if (directResult) return directResult;
+
+    const directText = readStringPath(records[i], ['text'])
+      ?? readStringPath(records[i], ['content']);
+    if (directText) return directText;
+
+    const messageText = extractMessageText(records[i]);
+    if (messageText) return messageText;
+  }
+
+  const textBlocks = records
+    .flatMap((record) => collectTextBlocks(record))
+    .filter((text) => text.trim());
+  return textBlocks.length > 0 ? textBlocks.join('\n') : undefined;
+}
+
+function extractMessageText(value: unknown): string | undefined {
+  const messageContent = readPath(value, ['message', 'content']);
+  if (!Array.isArray(messageContent)) return undefined;
+
+  const text = messageContent
+    .flatMap((item) => collectTextBlocks(item))
+    .filter((line) => line.trim())
+    .join('\n');
+  return text || undefined;
+}
+
+function collectTextBlocks(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectTextBlocks(item));
+  }
+  if (!isRecord(value)) return [];
+
+  if (value['type'] === 'text' && typeof value['text'] === 'string') {
+    return [value['text']];
+  }
+
+  return Object.values(value).flatMap((item) => collectTextBlocks(item));
+}
+
+function extractUsage(records: unknown[]): EvolveTelemetry['usage'] | undefined {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const usage = usageFromRecord(readPath(records[i], ['usage']) ?? records[i]);
+    if (usage) return usage;
+
+    const messageUsage = usageFromRecord(readPath(records[i], ['message', 'usage']));
+    if (messageUsage) return messageUsage;
+  }
+  return undefined;
+}
+
+function usageFromRecord(value: unknown): EvolveTelemetry['usage'] | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const directInput = readNumber(value, 'input_tokens') ?? readNumber(value, 'inputTokens');
+  const cacheCreation = readNumber(value, 'cache_creation_input_tokens') ?? 0;
+  const cacheRead = readNumber(value, 'cache_read_input_tokens') ?? 0;
+  const output = readNumber(value, 'output_tokens') ?? readNumber(value, 'outputTokens');
+
+  if (directInput === undefined && output === undefined && cacheCreation === 0 && cacheRead === 0) {
+    return undefined;
+  }
+
+  const inputTokens = (directInput ?? 0) + cacheCreation + cacheRead;
+  const outputTokens = output ?? 0;
+  return {
+    status: 'actual',
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    source: 'claude-cli-json',
+  };
+}
+
+function readPath(value: unknown, pathParts: string[]): unknown {
+  let current = value;
+  for (const part of pathParts) {
+    if (!isRecord(current)) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function readStringPath(value: unknown, pathParts: string[]): string | undefined {
+  const result = readPath(value, pathParts);
+  return typeof result === 'string' && result.trim() ? result : undefined;
+}
+
+function readNumber(value: Record<string, unknown>, key: string): number | undefined {
+  const raw = value[key];
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 /**
