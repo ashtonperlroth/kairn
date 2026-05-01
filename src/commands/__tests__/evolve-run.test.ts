@@ -24,14 +24,6 @@ vi.mock('../../evolve/runner.js', () => ({
   runTask: vi.fn(),
 }));
 
-vi.mock('../../evolve/scorers.js', () => ({
-  scoreTask: vi.fn(),
-}));
-
-vi.mock('../../evolve/trace.js', () => ({
-  writeScore: vi.fn(),
-}));
-
 vi.mock('../../config.js', () => ({
   loadConfig: vi.fn(),
 }));

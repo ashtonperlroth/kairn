@@ -548,7 +548,7 @@ describe('runTask', () => {
 
 // ─── evaluateAll ────────────────────────────────────────────────────────────
 
-// Mock runTask and scoreTask for evaluateAll tests
+// Mock scoreTask for evaluateAll tests
 vi.mock('../runner.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../runner.js')>();
   return {
@@ -561,20 +561,10 @@ vi.mock('../scorers.js', () => ({
   scoreTask: vi.fn(),
 }));
 
-vi.mock('../trace.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../trace.js')>();
-  return {
-    ...original,
-    writeScore: vi.fn(),
-  };
-});
-
 // Import mocked modules
 import { scoreTask } from '../scorers.js';
-import { writeScore } from '../trace.js';
 
 const mockedScoreTask = vi.mocked(scoreTask);
-const mockedWriteScore = vi.mocked(writeScore);
 
 describe('evaluateAll', () => {
   let tempDir: string;
@@ -643,7 +633,7 @@ describe('evaluateAll', () => {
     const harnessPath = path.join(tempDir, 'harness');
     const workspacePath = path.join(tempDir, 'workspace');
 
-    // Without config, no scoreTask is called — uses runTask default score
+    // Without config, no scoreTask is called -- uses runTask default score
     const { results } = await evaluateAll(tasks, harnessPath, workspacePath, 0, null);
 
     expect(results).toHaveProperty('task-a');
@@ -671,14 +661,12 @@ describe('evaluateAll', () => {
 
     const scoredResult: Score = { pass: true, score: 85, details: 'Good work' };
     mockedScoreTask.mockResolvedValue(scoredResult);
-    mockedWriteScore.mockResolvedValue(undefined);
 
     const { results, aggregate } = await evaluateAll(
       tasks, harnessPath, workspacePath, 0, config,
     );
 
     expect(mockedScoreTask).toHaveBeenCalledTimes(1);
-    expect(mockedWriteScore).toHaveBeenCalledTimes(1);
     expect(results['scored-1']).toEqual(scoredResult);
     expect(aggregate).toBe(85);
   });
@@ -697,7 +685,6 @@ describe('evaluateAll', () => {
       .mockResolvedValueOnce({ pass: true, score: 100, details: 'Perfect' })
       .mockResolvedValueOnce({ pass: false, score: 50, details: 'Partial' })
       .mockResolvedValueOnce({ pass: true, score: 80, details: 'Good' });
-    mockedWriteScore.mockResolvedValue(undefined);
 
     const { aggregate } = await evaluateAll(
       tasks, harnessPath, workspacePath, 0, config,
@@ -727,14 +714,14 @@ describe('evaluateAll', () => {
 
     const score: Score = { pass: true, score: 90, details: 'Great' };
     mockedScoreTask.mockResolvedValue(score);
-    mockedWriteScore.mockResolvedValue(undefined);
 
     await evaluateAll(tasks, harnessPath, workspacePath, 0, config);
 
-    expect(mockedWriteScore).toHaveBeenCalledWith(
-      expect.stringContaining('write-score-1'),
-      score,
+    const scoreJson = await fs.readFile(
+      path.join(workspacePath, 'traces', '0', 'write-score-1', 'score.json'),
+      'utf-8',
     );
+    expect(JSON.parse(scoreJson)).toEqual(score);
   });
 
   it('uses pass boolean for aggregate when score field is undefined', async () => {
@@ -747,7 +734,6 @@ describe('evaluateAll', () => {
     mockedScoreTask
       .mockResolvedValueOnce({ pass: true, details: 'Passed' })
       .mockResolvedValueOnce({ pass: false, details: 'Failed' });
-    mockedWriteScore.mockResolvedValue(undefined);
 
     const { aggregate } = await evaluateAll(
       tasks, harnessPath, workspacePath, 0, config,

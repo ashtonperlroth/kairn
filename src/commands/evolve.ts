@@ -10,8 +10,7 @@ import { autoGenerateTasks, createEvolveWorkspace, writeTasksFile, buildProjectP
 import { generateTasksFromTemplates, EVAL_TEMPLATES, selectTemplatesForWorkflow } from '../evolve/templates.js';
 import { snapshotBaseline } from '../evolve/baseline.js';
 import { runTask } from '../evolve/runner.js';
-import { scoreTask } from '../evolve/scorers.js';
-import { writeScore, loadIterationLog } from '../evolve/trace.js';
+import { loadIterationLog } from '../evolve/trace.js';
 import { evolve } from '../evolve/loop.js';
 import { generateMarkdownReport, generateJsonReport } from '../evolve/report.js';
 import { generateDiff } from '../evolve/mutator.js';
@@ -283,16 +282,7 @@ evolveCommand
           const traceDir = path.join(workspace, 'traces', '0', task.id);
           const spinner = ora(`Running: ${task.id}`).start();
 
-          const result = await runTask(task, harnessPath, traceDir, 0);
-
-          // Score the result
-          if (config) {
-            const stdout = await fs.readFile(path.join(traceDir, 'stdout.log'), 'utf-8').catch(() => '');
-            const stderr = await fs.readFile(path.join(traceDir, 'stderr.log'), 'utf-8').catch(() => '');
-            const score = await scoreTask(task, traceDir, stdout, stderr, config);
-            result.score = score;
-            await writeScore(traceDir, score);
-          }
+          const result = await runTask(task, harnessPath, traceDir, 0, { config });
 
           results.push(result);
 

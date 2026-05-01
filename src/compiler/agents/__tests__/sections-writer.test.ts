@@ -353,6 +353,7 @@ describe('generateSections', () => {
       heading: '## Verification',
       content: 'Run npm test.',
       order: 0,
+      target: 'claudemd',
     });
   });
 

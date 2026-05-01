@@ -94,18 +94,6 @@ vi.mock("../../evolve/runner.js", () => ({
   runTask: runTaskMock,
 }));
 
-// Mock scoreTask
-const scoreTaskMock = vi.fn();
-vi.mock("../../evolve/scorers.js", () => ({
-  scoreTask: scoreTaskMock,
-}));
-
-// Mock writeScore
-const writeScoreMock = vi.fn();
-vi.mock("../../evolve/trace.js", () => ({
-  writeScore: writeScoreMock,
-}));
-
 // Mock evolve loop
 const evolveMock = vi.fn();
 vi.mock("../../evolve/loop.js", () => ({
@@ -488,7 +476,6 @@ describe("evolve run action", () => {
   it("parses tasks.yaml with yaml package and runs a single task with --task", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
-    scoreTaskMock.mockResolvedValue(score);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -496,7 +483,6 @@ describe("evolve run action", () => {
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     });
-    writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
     await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
@@ -508,7 +494,6 @@ describe("evolve run action", () => {
   it("filters to specific task with --task option", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
-    scoreTaskMock.mockResolvedValue(score);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -516,7 +501,6 @@ describe("evolve run action", () => {
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     });
-    writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
     await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
@@ -527,13 +511,15 @@ describe("evolve run action", () => {
       expect.any(String),
       expect.any(String),
       0,
+      expect.objectContaining({
+        config: expect.objectContaining({ api_key: "test-key" }),
+      }),
     );
   });
 
-  it("calls scoreTask after runTask for the specified task", async () => {
+  it("passes loaded config into runTask for live-workspace scoring", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
-    scoreTaskMock.mockResolvedValue(score);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -541,18 +527,20 @@ describe("evolve run action", () => {
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     });
-    writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
     await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
-    expect(scoreTaskMock).toHaveBeenCalledTimes(1);
+    expect(runTaskMock.mock.calls[0][4]).toEqual(
+      expect.objectContaining({
+        config: expect.objectContaining({ api_key: "test-key" }),
+      }),
+    );
   });
 
-  it("calls writeScore after scoring the specified task", async () => {
+  it("uses the score returned by runTask for the specified task", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
-    scoreTaskMock.mockResolvedValue(score);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -560,22 +548,17 @@ describe("evolve run action", () => {
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     });
-    writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
     await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
 
-    expect(writeScoreMock).toHaveBeenCalledTimes(1);
-    expect(writeScoreMock).toHaveBeenCalledWith(
-      expect.any(String),
-      score,
-    );
+    const logCalls = consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(logCalls.some((line: string) => line.includes("task-1"))).toBe(true);
   });
 
   it("uses ora spinner for --task single-task run", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
-    scoreTaskMock.mockResolvedValue(score);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -583,7 +566,6 @@ describe("evolve run action", () => {
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     });
-    writeScoreMock.mockResolvedValue(undefined);
 
     const ora = (await import("ora")).default;
 
@@ -598,7 +580,6 @@ describe("evolve run action", () => {
   it("passes full Task objects from YAML to runTask (not just IDs)", async () => {
     const score = makeSampleScore();
     runTaskMock.mockResolvedValue(makeSampleTaskResult({ score }));
-    scoreTaskMock.mockResolvedValue(score);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -606,7 +587,6 @@ describe("evolve run action", () => {
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     });
-    writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
     await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
@@ -625,8 +605,6 @@ describe("evolve run action", () => {
 
     runTaskMock
       .mockResolvedValueOnce(makeSampleTaskResult({ taskId: "task-1", score: passScore }));
-    scoreTaskMock
-      .mockResolvedValueOnce(passScore);
     loadConfigMock.mockResolvedValue({
       provider: "anthropic",
       api_key: "test-key",
@@ -634,7 +612,6 @@ describe("evolve run action", () => {
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     });
-    writeScoreMock.mockResolvedValue(undefined);
 
     const runCmd = evolveCommand.commands.find((c) => c.name() === "run");
     await runCmd?.parseAsync(["node", "run", "--task", "task-1"]);
