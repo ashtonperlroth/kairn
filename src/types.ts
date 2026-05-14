@@ -1,4 +1,5 @@
 import type { HarnessIR } from './ir/types.js';
+import type { HarnessProgram } from './ir/program.js';
 
 /** Legacy intent pattern type — retained for backward compatibility with saved environments. */
 export interface IntentPattern {
@@ -46,6 +47,7 @@ export interface EnvironmentSpec {
   autonomy_level: AutonomyLevel;
   tools: ToolSelection[];
   ir?: HarnessIR;
+  program?: HarnessProgram;
   harness: {
     claude_md: string;
     settings: Record<string, unknown>;

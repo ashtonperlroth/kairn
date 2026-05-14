@@ -11,7 +11,9 @@ import { executePlan } from "./batch.js";
 import { linkHarness } from "./linker.js";
 import { dispatchAgent } from "./agents/dispatch.js";
 import { renderClaudeMd } from "../ir/renderer.js";
-import type { EnvironmentSpec, RegistryTool, Clarification, SkeletonSpec, CompileProgress, IntentPattern } from "../types.js";
+import { createHarnessProgramFromIR } from "../ir/program.js";
+import type { EnvironmentSpec, RegistryTool, Clarification, SkeletonSpec, CompileProgress, IntentPattern, RuntimeTarget } from "../types.js";
+import { RUNTIME_TARGETS } from "../types.js";
 import type { HarnessIR } from "../ir/types.js";
 import type { AgentTask, AgentResult } from "./agents/types.js";
 import type { BatchProgress } from "./batch.js";
@@ -228,6 +230,13 @@ function validateSpec(spec: EnvironmentSpec): string[] {
   return warnings;
 }
 
+function resolveProgramTargets(defaultRuntime: string): RuntimeTarget[] {
+  if (RUNTIME_TARGETS.includes(defaultRuntime as typeof RUNTIME_TARGETS[number])) {
+    return [defaultRuntime as typeof RUNTIME_TARGETS[number]];
+  }
+  return ["claude-code"];
+}
+
 /**
  * Compile a natural language intent into a full EnvironmentSpec.
  *
@@ -363,6 +372,10 @@ export async function compile(
   }
 
   // Assemble final EnvironmentSpec
+  const program = createHarnessProgramFromIR(ir, {
+    targets: resolveProgramTargets(config.default_runtime),
+  });
+
   const spec: EnvironmentSpec = {
     id: `env_${crypto.randomUUID()}`,
     intent,
@@ -372,6 +385,7 @@ export async function compile(
     autonomy_level: 1,
     tools: skeleton.tools,
     ir,
+    program,
     harness: {
       claude_md: renderClaudeMd(
         ir.meta,

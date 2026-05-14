@@ -202,6 +202,17 @@ describe('compile()', () => {
     expect(spec.ir!.docs).toHaveLength(1);
   });
 
+  it('returns a target-neutral HarnessProgram converted from the linked IR', async () => {
+    const spec = await compile('Build a TypeScript CLI');
+
+    expect(spec.program).toBeDefined();
+    expect(spec.program!.compatibility.source).toBe('HarnessIR');
+    expect(spec.program!.targets).toEqual(['claude-code']);
+    expect(spec.program!.workflows.map((workflow) => workflow.id)).toContain('workflow:build');
+    expect(spec.program!.agents.map((agent) => agent.id)).toEqual(['agent:reviewer']);
+    expect(spec.program!.skills.map((skill) => skill.id)).toEqual(['skill:tdd']);
+  });
+
   it('returns backward-compatible harness fields from IR', async () => {
     const spec = await compile('Build a TypeScript CLI');
 
