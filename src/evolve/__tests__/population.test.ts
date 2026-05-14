@@ -32,6 +32,8 @@ vi.mock('../baseline.js', () => ({
 import { evaluateAll } from '../runner.js';
 import { propose } from '../proposer.js';
 import { applyMutations } from '../mutator.js';
+import type { ExecutionMeter } from '../execution-meter.js';
+import type { AsyncLimiter } from '../limits.js';
 
 const mockEvaluateAll = vi.mocked(evaluateAll);
 const mockPropose = vi.mocked(propose);
@@ -233,5 +235,85 @@ describe('runPopulation', () => {
 
     // They should be different directories
     expect(branch0).not.toBe(branch1);
+  });
+
+  it('stops cleanly when branches exhaust the shared PBT budget', async () => {
+    const tasks = [makeTask('task-1')];
+
+    mockEvaluateAll.mockImplementation(async (_tasks, _harnessPath, _workspacePath, _iteration, _config, _onProgress, _runsPerTask, _parallelTasks, meter?: ExecutionMeter) => {
+      await meter?.run(
+        {
+          phase: 'task-execution',
+          model: 'claude-sonnet-4-6',
+          inputText: 'x'.repeat(4_000),
+          source: 'test-shared-pbt-budget',
+          budgetField: 'taskUSD',
+          estimateOutputText: () => 'y'.repeat(4_000),
+        },
+        async () => 'ok',
+      );
+
+      return {
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      };
+    });
+
+    const result = await runPopulation(
+      tempDir,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({
+        maxIterations: 1,
+        pbtBranches: 3,
+        budgets: { pbtUSD: 0.02 },
+      }),
+      3,
+    );
+
+    expect(result.budgetExhausted).toBe(true);
+    expect(result.stoppedReason).toContain('pbtUSD');
+    expect(result.branches.length).toBeLessThan(3);
+    expect(result.branches.length).toBeGreaterThan(0);
+  });
+
+  it('caps Claude task concurrency globally across PBT branches', async () => {
+    const tasks = [makeTask('task-1')];
+    let activeRuns = 0;
+    let maxActiveRuns = 0;
+    const limiters = new Set<AsyncLimiter>();
+
+    mockEvaluateAll.mockImplementation(async (_tasks, _harnessPath, _workspacePath, _iteration, _config, _onProgress, _runsPerTask, _parallelTasks, _meter, taskRunLimiter?: AsyncLimiter) => {
+      expect(taskRunLimiter).toBeDefined();
+      limiters.add(taskRunLimiter as AsyncLimiter);
+
+      const simulateClaudeRun = async () => {
+        activeRuns++;
+        maxActiveRuns = Math.max(maxActiveRuns, activeRuns);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        activeRuns--;
+      };
+
+      await Promise.all([
+        taskRunLimiter!.run(simulateClaudeRun),
+        taskRunLimiter!.run(simulateClaudeRun),
+      ]);
+
+      return {
+        results: { 'task-1': { pass: true, score: 80 } },
+        aggregate: 80,
+      };
+    });
+
+    await runPopulation(
+      tempDir,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 1, pbtBranches: 3, parallelTasks: 2 }),
+      3,
+    );
+
+    expect(limiters.size).toBe(1);
+    expect(maxActiveRuns).toBe(2);
   });
 });
