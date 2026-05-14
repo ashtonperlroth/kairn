@@ -4,13 +4,14 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { copyDir } from './baseline.js';
-import { writeTrace } from './trace.js';
+import { buildTraceDir, writeTrace } from './trace.js';
 import { scoreTask } from './scorers.js';
 import { aggregateTelemetry, estimateTelemetry } from './cost.js';
 import { ExecutionMeter, telemetryFromUsage } from './execution-meter.js';
 import type { AsyncLimiter } from './limits.js';
 import type { KairnConfig } from '../types.js';
 import type { Task, TaskResult, Trace, Score, LoopProgressEvent, SpawnResult } from './types.js';
+import type { TraceNamespace } from './trace.js';
 import type { EvolveTelemetry } from './cost.js';
 
 const execAsync = promisify(exec);
@@ -690,12 +691,17 @@ export async function evaluateAll(
   parallelTasks: number = 1,
   meter?: ExecutionMeter,
   taskRunLimiter?: AsyncLimiter,
+  traceNamespace?: TraceNamespace,
 ): Promise<{ results: Record<string, Score>; aggregate: number; telemetry?: EvolveTelemetry }> {
   const results: Record<string, Score> = {};
   const telemetryEntries: NonNullable<TaskResult['telemetry']>[] = [];
   const projectRoot = path.resolve(workspacePath, '..');
   const effectiveRuns = Math.max(1, runsPerTask);
   const concurrency = Math.max(1, parallelTasks);
+  const baseTraceNamespace: TraceNamespace = traceNamespace ?? {
+    phase: 'evaluation',
+    harnessId: `iteration-${iteration}`,
+  };
 
   const evaluateTask = async (task: Task): Promise<{ id: string; score: Score }> => {
     onProgress?.({ type: 'task-start', iteration, taskId: task.id });
@@ -707,11 +713,11 @@ export async function evaluateAll(
       let passCount = 0;
 
       for (let run = 0; run < effectiveRuns; run++) {
-        const traceDir = path.join(
+        const traceDir = buildTraceDir(
           workspacePath,
-          'traces',
-          iteration.toString(),
-          `${task.id}_run${run}`,
+          iteration,
+          task.id,
+          { ...baseTraceNamespace, attemptId: `run-${run}` },
         );
 
         onProgress?.({
@@ -750,11 +756,11 @@ export async function evaluateAll(
         },
       };
     } else {
-      const traceDir = path.join(
+      const traceDir = buildTraceDir(
         workspacePath,
-        'traces',
-        iteration.toString(),
+        iteration,
         task.id,
+        baseTraceNamespace,
       );
 
       const taskResult = await runTask(

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { loadTrace, loadIterationTraces, writeTrace, writeScore, traceExists, writeIterationLog, loadIterationLog } from '../trace.js';
+import { buildTraceDir, loadTrace, loadIterationTraces, writeTrace, writeScore, traceExists, writeIterationLog, loadIterationLog } from '../trace.js';
 import type { Trace, Score, IterationLog, Proposal } from '../types.js';
 
 function makeTrace(overrides: Partial<Trace> = {}): Trace {
@@ -267,6 +267,80 @@ describe('loadIterationTraces', () => {
     expect(traces).toHaveLength(3);
     const ids = traces.map(t => t.taskId).sort();
     expect(ids).toEqual(['task-a', 'task-b', 'task-c']);
+  });
+
+  it('loads phase-namespaced traces recursively', async () => {
+    const workspace = path.join(tempDir, 'workspace');
+    const iter = 2;
+    const acceptedDir = buildTraceDir(
+      workspace,
+      iter,
+      'task-a',
+      { phase: 'evaluation', harnessId: 'iteration-2' },
+    );
+    const stagingDir = buildTraceDir(
+      workspace,
+      iter,
+      'task-a',
+      { phase: 'architect-staging', harnessId: 'staging-2' },
+    );
+
+    await writeTrace(acceptedDir, makeTrace({ taskId: 'task-a', stdout: 'accepted' }));
+    await writeTrace(stagingDir, makeTrace({ taskId: 'task-a', stdout: 'staging' }));
+
+    const traces = await loadIterationTraces(workspace, iter);
+    expect(traces.map(t => t.stdout).sort()).toEqual(['accepted', 'staging']);
+    expect(traces.every(t => t.iteration === iter)).toBe(true);
+  });
+
+  it('filters traces by intended phase and harness id', async () => {
+    const workspace = path.join(tempDir, 'workspace');
+    const iter = 3;
+
+    await writeTrace(
+      buildTraceDir(workspace, iter, 'task-a', { phase: 'evaluation', harnessId: 'iteration-3' }),
+      makeTrace({ taskId: 'task-a', stdout: 'accepted' }),
+    );
+    await writeTrace(
+      buildTraceDir(workspace, iter, 'task-a', { phase: 'architect-staging', harnessId: 'staging-3' }),
+      makeTrace({ taskId: 'task-a', stdout: 'staging' }),
+    );
+
+    const traces = await loadIterationTraces(workspace, iter, {
+      phase: 'evaluation',
+      harnessId: 'iteration-3',
+    });
+
+    expect(traces).toHaveLength(1);
+    expect(traces[0].stdout).toBe('accepted');
+  });
+
+  it('keeps rerun attempts isolated under the same phase and harness', async () => {
+    const workspace = path.join(tempDir, 'workspace');
+    const iter = 4;
+
+    const run0 = buildTraceDir(
+      workspace,
+      iter,
+      'task-a',
+      { phase: 'evaluation', harnessId: 'iteration-4', attemptId: 'run-0' },
+    );
+    const run1 = buildTraceDir(
+      workspace,
+      iter,
+      'task-a',
+      { phase: 'evaluation', harnessId: 'iteration-4', attemptId: 'run-1' },
+    );
+
+    await writeTrace(run0, makeTrace({ taskId: 'task-a', stdout: 'run 0' }));
+    await writeTrace(run1, makeTrace({ taskId: 'task-a', stdout: 'run 1' }));
+
+    const traces = await loadIterationTraces(workspace, iter, {
+      phase: 'evaluation',
+      harnessId: 'iteration-4',
+    });
+
+    expect(traces.map(t => t.stdout).sort()).toEqual(['run 0', 'run 1']);
   });
 
   it('returns empty array when iteration directory does not exist', async () => {

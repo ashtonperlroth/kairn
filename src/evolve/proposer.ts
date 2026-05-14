@@ -607,7 +607,10 @@ export async function propose(
   meter?: ExecutionMeter,
 ): Promise<Proposal> {
   const harnessFiles = await readHarnessFiles(harnessPath);
-  const traces = await loadIterationTraces(workspacePath, iteration);
+  const traces = await loadIterationTraces(workspacePath, iteration, {
+    phase: 'evaluation',
+    harnessId: `iteration-${iteration}`,
+  });
   const { loadProposerMemory, formatMemoryForProposer } = await import('./memory.js');
   const memory = await loadProposerMemory(workspacePath);
   const memorySection = formatMemoryForProposer(memory);

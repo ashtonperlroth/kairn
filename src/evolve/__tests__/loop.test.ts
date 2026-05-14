@@ -1401,12 +1401,26 @@ describe('evolve', () => {
         (event) => events.push(event),
       );
 
-      const rejectedEvents = events.filter(e => e.type === 'architect-rejected');
-      expect(rejectedEvents).toHaveLength(1);
-      expect(rejectedEvents[0].iteration).toBe(1);
-      // copyDir called to copy current best harness forward (not the staging one)
-      expect(mockCopyDir).toHaveBeenCalled();
-    });
+    const rejectedEvents = events.filter(e => e.type === 'architect-rejected');
+    expect(rejectedEvents).toHaveLength(1);
+    expect(rejectedEvents[0].iteration).toBe(1);
+    expect(mockEvaluateAll).toHaveBeenNthCalledWith(
+      3,
+      tasks,
+      path.join(workspace, 'staging', '1', 'harness'),
+      workspace,
+      1,
+      expect.any(Object),
+      expect.any(Function),
+      1,
+      1,
+      expect.any(Object),
+      undefined,
+      { phase: 'architect-staging', harnessId: 'staging-1' },
+    );
+    // copyDir called to copy current best harness forward (not the staging one)
+    expect(mockCopyDir).toHaveBeenCalled();
+  });
 
     it('falls back to copying harness when architect proposer throws', async () => {
       const workspace = await createWorkspace([0, 1, 2, 3]);
