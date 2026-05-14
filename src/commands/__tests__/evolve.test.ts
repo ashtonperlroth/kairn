@@ -242,6 +242,30 @@ describe("evolve command structure", () => {
     expect(taskOption).toBeDefined();
   });
 
+  it("run help documents cheap architect default and spend impact", () => {
+    const runCmd = evolveCommand.commands.find(
+      (c) => c.name() === "run",
+    );
+
+    const help = runCmd?.helpInformation() ?? "";
+
+    expect(help).toMatch(/default:\s+0, disabled/);
+    expect(help).toContain("default: off");
+    expect(help).toContain("structural proposer calls");
+  });
+
+  it("pbt help documents branch spend multiplier and cheap defaults", () => {
+    const pbtCmd = evolveCommand.commands.find(
+      (c) => c.name() === "pbt",
+    );
+
+    const help = pbtCmd?.helpInformation() ?? "";
+
+    expect(help).toMatch(/spend is roughly\s+branches/);
+    expect(help).toContain('default: "1"');
+    expect(help).toContain('default: "0"');
+  });
+
   it("init subcommand has --workflow option", () => {
     const initCmd = evolveCommand.commands.find(
       (c) => c.name() === "init",

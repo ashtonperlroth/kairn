@@ -52,18 +52,24 @@ describe('computeMutationCap (exploration/exploitation schedule)', () => {
 
 describe('shouldUseArchitect', () => {
   it('never returns true on iteration 0 (baseline evaluation)', () => {
+    expect(shouldUseArchitect(0, 10, 'off', 0)).toBe(false);
     expect(shouldUseArchitect(0, 10, 'constant', 3)).toBe(false);
     expect(shouldUseArchitect(0, 10, 'explore-exploit', 3)).toBe(false);
     expect(shouldUseArchitect(0, 10, 'adaptive', 3, [80, 80])).toBe(false);
   });
 
   it('never returns true on the last iteration', () => {
+    expect(shouldUseArchitect(9, 10, 'off', 0)).toBe(false);
     expect(shouldUseArchitect(9, 10, 'constant', 3)).toBe(false);
     expect(shouldUseArchitect(9, 10, 'explore-exploit', 3)).toBe(false);
     expect(shouldUseArchitect(9, 10, 'adaptive', 3, [80, 80, 80])).toBe(false);
   });
 
   describe('constant schedule', () => {
+    it('returns false when architectEvery disables architect runs', () => {
+      expect(shouldUseArchitect(3, 10, 'constant', 0)).toBe(false);
+    });
+
     it('returns true on multiples of architectEvery', () => {
       expect(shouldUseArchitect(3, 10, 'constant', 3)).toBe(true);
       expect(shouldUseArchitect(6, 10, 'constant', 3)).toBe(true);
@@ -93,6 +99,13 @@ describe('shouldUseArchitect', () => {
       expect(shouldUseArchitect(6, 10, 'explore-exploit', 5)).toBe(false);
       expect(shouldUseArchitect(7, 10, 'explore-exploit', 5)).toBe(false);
       expect(shouldUseArchitect(8, 10, 'explore-exploit', 5)).toBe(false);
+    });
+  });
+
+  describe('off schedule', () => {
+    it('disables architect runs on candidate iterations', () => {
+      expect(shouldUseArchitect(1, 10, 'off', 0)).toBe(false);
+      expect(shouldUseArchitect(3, 10, 'off', 3)).toBe(false);
     });
   });
 

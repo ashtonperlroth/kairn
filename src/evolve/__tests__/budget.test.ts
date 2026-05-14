@@ -84,4 +84,14 @@ describe('evolve budget forecasting', () => {
     expect(result.ok).toBe(false);
     expect(result.violations[0].field).toBe('pbtUSD');
   });
+
+  it('forecasts zero architect calls when architect schedule is off', () => {
+    const forecast = forecastEvolveBudget(
+      [makeTask()],
+      makeConfig({ maxIterations: 5, schedule: 'off', architectEvery: 0 }),
+    );
+
+    expect(forecast.architectCalls).toBe(0);
+    expect(forecast.estimatedArchitectUSD).toBe(0);
+  });
 });
