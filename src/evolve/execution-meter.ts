@@ -32,6 +32,10 @@ export interface MeteredCallOptions<T> {
   estimateOutputText?: (result: T) => string;
 }
 
+export interface ExecutionMeterOptions {
+  globalBudgetField?: Extract<keyof EvolveBudgetConfig, 'runUSD' | 'pbtUSD'>;
+}
+
 export class BudgetExhaustedError extends Error {
   constructor(
     public readonly phase: TelemetryPhase,
@@ -48,8 +52,14 @@ export class BudgetExhaustedError extends Error {
 
 export class ExecutionMeter {
   private readonly telemetryEntries: EvolveTelemetry[] = [];
+  private readonly globalBudgetField: Extract<keyof EvolveBudgetConfig, 'runUSD' | 'pbtUSD'>;
 
-  constructor(private readonly budgets: EvolveBudgetConfig | undefined = undefined) {}
+  constructor(
+    private readonly budgets: EvolveBudgetConfig | undefined = undefined,
+    options: ExecutionMeterOptions = {},
+  ) {
+    this.globalBudgetField = options.globalBudgetField ?? 'runUSD';
+  }
 
   checkpoint(): number {
     return this.telemetryEntries.length;
@@ -69,6 +79,13 @@ export class ExecutionMeter {
 
   costByPhase() {
     return aggregateCostByPhase(this.telemetryEntries);
+  }
+
+  assertBudgetAvailable(
+    phase: TelemetryPhase,
+    budgetField?: keyof EvolveBudgetConfig,
+  ): void {
+    this.checkBudgets(phase, budgetField, 'before');
   }
 
   async run<T>(
@@ -130,7 +147,7 @@ export class ExecutionMeter {
     budgetField: keyof EvolveBudgetConfig | undefined,
     stage: 'before' | 'after',
   ): void {
-    this.checkBudgetField(phase, 'runUSD', this.totalSpent(), stage);
+    this.checkBudgetField(phase, this.globalBudgetField, this.totalSpent(), stage);
     if (budgetField) {
       this.checkBudgetField(phase, budgetField, this.totalSpentForPhase(phase), stage);
     }

@@ -3,6 +3,12 @@ import path from 'path';
 import { copyDir } from './baseline.js';
 import { evolve } from './loop.js';
 import { runSynthesis } from './synthesis.js';
+import { AsyncLimiter } from './limits.js';
+import {
+  BudgetExhaustedError,
+  ExecutionMeter,
+  writeExecutionLedger,
+} from './execution-meter.js';
 import type { KairnConfig } from '../types.js';
 import type {
   Task,
@@ -39,6 +45,12 @@ export interface PBTResult {
   synthesizedResult?: EvolveResult;  // after Meta-Principal (Step 4)
   bestBranch: number;
   bestScore: number;
+  budgetExhausted: boolean;
+  stoppedReason?: string;
+}
+
+function hasUsableBudget(value: number | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 /**
@@ -104,9 +116,9 @@ export async function initBranches(
  * Run N parallel evolution branches, each with its own workspace, seed, and
  * Thompson Sampling beliefs.
  *
- * All branches run concurrently via Promise.all. Each branch operates on
- * an independent copy of the baseline harness, so mutations in one branch
- * never affect another.
+ * Branches run concurrently while sharing one PBT-wide execution meter and
+ * Claude task limiter. Each branch operates on an independent copy of the
+ * baseline harness, so mutations in one branch never affect another.
  *
  * @param workspacePath - Root .kairn-evolve/ directory
  * @param tasks - Task definitions from tasks.yaml
@@ -125,13 +137,18 @@ export async function runPopulation(
   onProgress?: (event: LoopProgressEvent & { branchId?: number }) => void,
 ): Promise<PBTResult> {
   const branches = numBranches ?? evolveConfig.pbtBranches;
+  const sharedMeter = new ExecutionMeter(evolveConfig.budgets, {
+    globalBudgetField: hasUsableBudget(evolveConfig.budgets?.pbtUSD) ? 'pbtUSD' : 'runUSD',
+  });
+  const taskRunLimiter = new AsyncLimiter(evolveConfig.parallelTasks);
 
   // Initialize branch workspaces
   const baselinePath = path.join(workspacePath, 'baseline');
   const branchConfigs = await initBranches(workspacePath, baselinePath, branches);
 
-  // Run all branches concurrently
-  const branchPromises = branchConfigs.map(async (branchConfig) => {
+  const runBranch = async (branchConfig: BranchConfig): Promise<BranchResult> => {
+    sharedMeter.assertBudgetAvailable('task-execution');
+
     // Each branch gets its own evolve config with unique seed behavior
     // The seed is embedded in the workspace path (Thompson Sampling reads/writes
     // beliefs per-workspace, so each branch naturally gets independent beliefs)
@@ -155,6 +172,11 @@ export async function runPopulation(
       kairnConfig,
       branchEvolveConfig,
       branchProgress,
+      {
+        meter: sharedMeter,
+        taskRunLimiter,
+        writeLedger: false,
+      },
     );
 
     // Find the best iteration's harness path
@@ -181,9 +203,55 @@ export async function runPopulation(
       finalHarnessPath,
       beliefs,
     } satisfies BranchResult;
-  });
+  };
 
-  const branchResults = await Promise.all(branchPromises);
+  const branchResults: BranchResult[] = [];
+  let budgetExhausted = false;
+  let stoppedReason: string | undefined;
+  let nextBranchIndex = 0;
+
+  // Launch branches through a bounded queue so budget exhaustion can prevent
+  // later branches from starting while still allowing useful PBT parallelism.
+  const branchLaunchLimit = Math.min(branchConfigs.length, taskRunLimiter.maxConcurrency);
+  const launchWorker = async (): Promise<void> => {
+    while (!budgetExhausted && nextBranchIndex < branchConfigs.length) {
+      const branchConfig = branchConfigs[nextBranchIndex];
+      nextBranchIndex++;
+
+      try {
+        branchResults.push(await runBranch(branchConfig));
+      } catch (err) {
+        if (err instanceof BudgetExhaustedError) {
+          budgetExhausted = true;
+          stoppedReason = err.message;
+          onProgress?.({
+            type: 'proposer-error',
+            iteration: 0,
+            message: `PBT stopped: ${err.message}`,
+          });
+          return;
+        }
+
+        throw err;
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: branchLaunchLimit }, () => launchWorker()),
+  );
+
+  await writeExecutionLedger(workspacePath, sharedMeter);
+
+  if (branchResults.length === 0) {
+    return {
+      branches: [],
+      bestBranch: -1,
+      bestScore: 0,
+      budgetExhausted,
+      stoppedReason,
+    };
+  }
 
   // Identify best branch
   let bestBranch = 0;
@@ -195,52 +263,58 @@ export async function runPopulation(
     }
   }
 
-  // Meta-Principal synthesis: combine best mutations from all branches
+  // Meta-Principal synthesis: combine best mutations from all branches. Skip
+  // synthesis after budget exhaustion so no new expensive branch-adjacent work
+  // starts once the shared gate is closed.
   let synthesizedResult: EvolveResult | undefined;
-  try {
-    const baselinePath = path.join(workspacePath, 'baseline');
-    const synthesisResult = await runSynthesis(
-      { branches: branchResults, tasks, baselineHarnessPath: baselinePath },
-      kairnConfig,
-      evolveConfig,
-      workspacePath,
-    );
+  if (!budgetExhausted) {
+    try {
+      const baselinePath = path.join(workspacePath, 'baseline');
+      const synthesisResult = await runSynthesis(
+        { branches: branchResults, tasks, baselineHarnessPath: baselinePath },
+        kairnConfig,
+        evolveConfig,
+        workspacePath,
+        sharedMeter,
+        taskRunLimiter,
+      );
 
-    if (synthesisResult) {
-      const synthScore = synthesisResult.result.aggregate;
-      synthesizedResult = {
-        iterations: [{
+      if (synthesisResult) {
+        const synthScore = synthesisResult.result.aggregate;
+        synthesizedResult = {
+          iterations: [{
+            iteration: 0,
+            score: synthScore,
+            taskResults: synthesisResult.result.results,
+            proposal: {
+              reasoning: synthesisResult.reasoning,
+              mutations: synthesisResult.mutations,
+              expectedImpact: {},
+            },
+            diffPatch: null,
+            timestamp: new Date().toISOString(),
+          }],
+          bestIteration: 0,
+          bestScore: synthScore,
+          baselineScore: bestScore,
+        };
+
+        onProgress?.({
+          type: 'iteration-scored',
           iteration: 0,
           score: synthScore,
-          taskResults: synthesisResult.result.results,
-          proposal: {
-            reasoning: synthesisResult.reasoning,
-            mutations: synthesisResult.mutations,
-            expectedImpact: {},
-          },
-          diffPatch: null,
-          timestamp: new Date().toISOString(),
-        }],
-        bestIteration: 0,
-        bestScore: synthScore,
-        baselineScore: bestScore,
-      };
+          message: `Meta-Principal synthesis: ${synthScore.toFixed(1)}%`,
+        });
 
-      onProgress?.({
-        type: 'iteration-scored',
-        iteration: 0,
-        score: synthScore,
-        message: `Meta-Principal synthesis: ${synthScore.toFixed(1)}%`,
-      });
-
-      // If synthesis beats all branches, it becomes the best
-      if (synthScore > bestScore) {
-        bestScore = synthScore;
-        bestBranch = -1; // -1 indicates synthesis won
+        // If synthesis beats all branches, it becomes the best
+        if (synthScore > bestScore) {
+          bestScore = synthScore;
+          bestBranch = -1; // -1 indicates synthesis won
+        }
       }
+    } catch {
+      // Synthesis failed — use best branch result
     }
-  } catch {
-    // Synthesis failed — use best branch result
   }
 
   return {
@@ -248,5 +322,7 @@ export async function runPopulation(
     synthesizedResult,
     bestBranch,
     bestScore,
+    budgetExhausted,
+    stoppedReason,
   };
 }

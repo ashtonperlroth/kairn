@@ -4,7 +4,7 @@ import { evaluateAll } from './runner.js';
 import { propose, buildIRSummary } from './proposer.js';
 import { applyMutations } from './mutator.js';
 import { writeIterationLog } from './trace.js';
-import { ExecutionMeter, writeExecutionLedger } from './execution-meter.js';
+import { BudgetExhaustedError, ExecutionMeter, writeExecutionLedger } from './execution-meter.js';
 import { copyDir } from './baseline.js';
 import { proposeArchitecture } from './architect.js';
 import { shouldUseArchitect, computeArchitectMutationBudget } from './schedule.js';
@@ -20,6 +20,7 @@ import type { ProjectContext } from './proposer.js';
 import type { ProjectAnalysis } from '../analyzer/types.js';
 import type { TaskBelief } from './sampling.js';
 import type { ComplexityMetrics } from './regularization.js';
+import type { AsyncLimiter } from './limits.js';
 import type { KairnConfig } from '../types.js';
 import type {
   Task,
@@ -32,6 +33,12 @@ import type {
 
 /** Maximum characters of packed source to include as key source files. */
 const KEY_SOURCE_CHARS_LIMIT = 10_000;
+
+export interface EvolveRunContext {
+  meter?: ExecutionMeter;
+  taskRunLimiter?: AsyncLimiter;
+  writeLedger?: boolean;
+}
 
 /**
  * Load project context (analysis + packed source) from the project root.
@@ -142,12 +149,13 @@ export async function evolve(
   kairnConfig: KairnConfig,
   evolveConfig: EvolveConfig,
   onProgress?: (event: LoopProgressEvent) => void,
+  runContext: EvolveRunContext = {},
 ): Promise<EvolveResult> {
   const history: IterationLog[] = [];
   let bestScore = -1;
   let bestIteration = 0;
   let baselineScore = 0;
-  const meter = new ExecutionMeter(evolveConfig.budgets);
+  const meter = runContext.meter ?? new ExecutionMeter(evolveConfig.budgets);
 
   // Thompson Sampling: initialize or load beliefs
   const useThompson = evolveConfig.samplingStrategy === 'thompson' && evolveConfig.evalSampleSize > 0;
@@ -305,6 +313,7 @@ export async function evolve(
       evolveConfig.runsPerTask,
       evolveConfig.parallelTasks,
       meter,
+      runContext.taskRunLimiter,
     );
 
     // Merge carried-forward scores with evaluated results
@@ -465,7 +474,8 @@ export async function evolve(
             iteration: iter,
             mutationCount: rollbackProposal.mutations.length,
           });
-        } catch {
+        } catch (err) {
+          if (err instanceof BudgetExhaustedError) throw err;
           // Proposer or mutation failed — fall back to copying best harness unchanged
           const nextIterDir = path.join(workspacePath, 'iterations', (iter + 1).toString());
           await copyDir(bestHarnessPath, path.join(nextIterDir, 'harness'));
@@ -557,6 +567,7 @@ export async function evolve(
           };
         }
       } catch (err) {
+        if (err instanceof BudgetExhaustedError) throw err;
         // Architect failed — fall back: copy current harness forward unchanged
         const errMsg = err instanceof Error ? err.message : String(err);
         onProgress?.({
@@ -628,6 +639,7 @@ export async function evolve(
         evolveConfig.runsPerTask,
         evolveConfig.parallelTasks,
         meter,
+        runContext.taskRunLimiter,
       );
 
       if (stagingScore >= bestScore) {
@@ -691,6 +703,7 @@ export async function evolve(
         };
       }
     } catch (err) {
+      if (err instanceof BudgetExhaustedError) throw err;
       // Proposer failed — log the error and copy current harness forward unchanged
       const errMsg = err instanceof Error ? err.message : String(err);
       onProgress?.({
@@ -812,6 +825,7 @@ export async function evolve(
         evolveConfig.runsPerTask,
         evolveConfig.parallelTasks,
         meter,
+        runContext.taskRunLimiter,
       );
       onProgress?.({ type: 'iteration-scored', iteration: principalIterNum, score: principalAggregate });
 
@@ -832,6 +846,7 @@ export async function evolve(
         bestIteration = principalIterNum;
       }
     } catch (err) {
+      if (err instanceof BudgetExhaustedError) throw err;
       const errMsg = err instanceof Error ? err.message : String(err);
       onProgress?.({ type: 'proposer-error', iteration: history.length, message: `Principal failed: ${errMsg}` });
     }
@@ -861,7 +876,9 @@ export async function evolve(
     score: bestScore,
   });
 
-  await writeExecutionLedger(workspacePath, meter);
+  if (runContext.writeLedger !== false) {
+    await writeExecutionLedger(workspacePath, meter);
+  }
 
   return {
     iterations: history,

@@ -16,6 +16,7 @@ import type {
 } from './types.js';
 import type { BranchResult } from './population.js';
 import type { TaskBelief } from './sampling.js';
+import type { AsyncLimiter } from './limits.js';
 
 /**
  * Context passed to the Meta-Principal for cross-branch synthesis.
@@ -209,6 +210,7 @@ export async function evaluateSynthesis(
   workspacePath: string,
   kairnConfig: KairnConfig,
   meter?: ExecutionMeter,
+  taskRunLimiter?: AsyncLimiter,
 ): Promise<{ results: Record<string, Score>; aggregate: number }> {
   const synthesisIterNum = 999; // Distinguishes synthesis eval from branch evals
   return evaluateAll(
@@ -221,6 +223,7 @@ export async function evaluateSynthesis(
     1,  // single run per task for synthesis
     2,  // moderate parallelism
     meter,
+    taskRunLimiter,
   );
 }
 
@@ -240,6 +243,7 @@ export async function runSynthesis(
   evolveConfig: EvolveConfig,
   workspacePath: string,
   meter?: ExecutionMeter,
+  taskRunLimiter?: AsyncLimiter,
 ): Promise<{ result: { results: Record<string, Score>; aggregate: number }; mutations: Mutation[]; reasoning: string } | null> {
   try {
     // 1. Call Meta-Principal
@@ -265,6 +269,7 @@ export async function runSynthesis(
       workspacePath,
       kairnConfig,
       effectiveMeter,
+      taskRunLimiter,
     );
 
     return { result: evalResult, mutations, reasoning };
