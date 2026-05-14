@@ -8,6 +8,7 @@ import { writeTrace } from './trace.js';
 import { scoreTask } from './scorers.js';
 import { aggregateTelemetry, estimateTelemetry } from './cost.js';
 import { ExecutionMeter, telemetryFromUsage } from './execution-meter.js';
+import type { AsyncLimiter } from './limits.js';
 import type { KairnConfig } from '../types.js';
 import type { Task, TaskResult, Trace, Score, LoopProgressEvent, SpawnResult } from './types.js';
 import type { EvolveTelemetry } from './cost.js';
@@ -24,6 +25,7 @@ export interface RunTaskOptions {
   maxTurns?: number;
   maxBudgetUsd?: number;
   meter?: ExecutionMeter;
+  taskRunLimiter?: AsyncLimiter;
 }
 
 export interface SpawnClaudeOptions {
@@ -172,7 +174,7 @@ export async function runTask(
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
 
-  const { projectRoot, config, maxTurns, maxBudgetUsd, meter } = normalizeRunTaskOptions(options);
+  const { projectRoot, config, maxTurns, maxBudgetUsd, meter, taskRunLimiter } = normalizeRunTaskOptions(options);
   const effectiveMeter = meter ?? new ExecutionMeter();
   const model = config?.model ?? (typeof options === 'object' ? options.model : undefined) ?? legacyModel;
   const root = projectRoot ?? process.cwd();
@@ -196,7 +198,7 @@ export async function runTask(
     const filesBefore = await snapshotFileList(workDir);
 
     // Spawn claude CLI
-    const meteredSpawn = await effectiveMeter.run(
+    const spawnWithMeter = () => effectiveMeter.run(
       {
         phase: 'task-execution',
         model,
@@ -220,6 +222,9 @@ export async function runTask(
         maxBudgetUsd,
       }),
     );
+    const meteredSpawn = taskRunLimiter
+      ? await taskRunLimiter.run(spawnWithMeter)
+      : await spawnWithMeter();
     const spawnResult = meteredSpawn.result;
 
     // Diff files to detect changes
@@ -684,6 +689,7 @@ export async function evaluateAll(
   runsPerTask: number = 1,
   parallelTasks: number = 1,
   meter?: ExecutionMeter,
+  taskRunLimiter?: AsyncLimiter,
 ): Promise<{ results: Record<string, Score>; aggregate: number; telemetry?: EvolveTelemetry }> {
   const results: Record<string, Score> = {};
   const telemetryEntries: NonNullable<TaskResult['telemetry']>[] = [];
@@ -720,7 +726,7 @@ export async function evaluateAll(
           harnessPath,
           traceDir,
           iteration,
-          { projectRoot, config, meter },
+          { projectRoot, config, meter, taskRunLimiter },
         );
         if (taskResult.telemetry) telemetryEntries.push(taskResult.telemetry);
         const score = taskResult.score;
@@ -756,7 +762,7 @@ export async function evaluateAll(
         harnessPath,
         traceDir,
         iteration,
-        { projectRoot, config, meter },
+        { projectRoot, config, meter, taskRunLimiter },
       );
       if (taskResult.telemetry) telemetryEntries.push(taskResult.telemetry);
 
