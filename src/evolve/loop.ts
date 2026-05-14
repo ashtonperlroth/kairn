@@ -640,6 +640,7 @@ export async function evolve(
         evolveConfig.parallelTasks,
         meter,
         runContext.taskRunLimiter,
+        { phase: 'architect-staging', harnessId: `staging-${iter}` },
       );
 
       if (stagingScore >= bestScore) {

@@ -3,10 +3,123 @@ import path from 'path';
 import type { Trace, Score, IterationLog, Proposal } from './types.js';
 import { aggregateTelemetry, unavailableTelemetry } from './cost.js';
 
+export type TracePhase =
+  | 'evaluation'
+  | 'architect-staging'
+  | 'canary'
+  | 'rerun';
+
+export interface TraceNamespace {
+  phase: TracePhase;
+  harnessId: string;
+  attemptId?: string;
+}
+
+export interface LoadIterationTracesOptions {
+  phase?: TracePhase;
+  harnessId?: string;
+  attemptId?: string;
+}
+
+function sanitizeTraceSegment(value: string): string {
+  const sanitized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!sanitized || sanitized === '.' || sanitized === '..') {
+    throw new Error(`Invalid trace path segment: ${value}`);
+  }
+  return sanitized;
+}
+
+export function buildTraceDir(
+  workspacePath: string,
+  iteration: number,
+  taskId: string,
+  namespace: TraceNamespace,
+): string {
+  const segments = [
+    workspacePath,
+    'traces',
+    iteration.toString(),
+    sanitizeTraceSegment(namespace.phase),
+    sanitizeTraceSegment(namespace.harnessId),
+  ];
+
+  if (namespace.attemptId) {
+    segments.push(sanitizeTraceSegment(namespace.attemptId));
+  }
+
+  segments.push(sanitizeTraceSegment(taskId));
+  return path.join(...segments);
+}
+
+function iterationFromTraceDir(traceDir: string): number {
+  const parts = traceDir.split(path.sep);
+  const tracesIndex = parts.lastIndexOf('traces');
+  if (tracesIndex >= 0 && parts[tracesIndex + 1]) {
+    const parsed = parseInt(parts[tracesIndex + 1], 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  const parentDir = path.basename(path.dirname(traceDir));
+  return parseInt(parentDir, 10) || 0;
+}
+
+async function hasTracePayload(traceDir: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(path.join(traceDir, 'stdout.log'));
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function traceDirMatchesOptions(
+  tracesDir: string,
+  traceDir: string,
+  options: LoadIterationTracesOptions,
+): boolean {
+  if (!options.phase && !options.harnessId && !options.attemptId) return true;
+
+  const relativeParts = path.relative(tracesDir, traceDir).split(path.sep);
+  const [phase, harnessId, maybeAttemptId] = relativeParts;
+
+  if (options.phase && phase !== options.phase) return false;
+  if (options.harnessId && harnessId !== options.harnessId) return false;
+  if (options.attemptId && maybeAttemptId !== options.attemptId) return false;
+
+  return true;
+}
+
+async function collectTraceDirs(
+  dir: string,
+  tracesDir: string,
+  options: LoadIterationTracesOptions,
+  result: string[],
+): Promise<void> {
+  if (await hasTracePayload(dir)) {
+    if (traceDirMatchesOptions(tracesDir, dir, options)) {
+      result.push(dir);
+    }
+    return;
+  }
+
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      await collectTraceDirs(path.join(dir, entry.name), tracesDir, options, result);
+    }
+  }
+}
+
 /**
  * Load a trace from filesystem.
  * Parses tool_calls.jsonl (one JSON object per line) and extracts
- * the iteration number from the parent directory name.
+ * the iteration number from the trace namespace path.
  */
 export async function loadTrace(traceDir: string): Promise<Trace> {
   const stdout = await fs.readFile(path.join(traceDir, 'stdout.log'), 'utf-8').catch(() => '');
@@ -38,9 +151,7 @@ export async function loadTrace(traceDir: string): Promise<Trace> {
     .filter(line => line.trim())
     .map(line => JSON.parse(line) as unknown);
 
-  // Extract iteration from parent directory name (traces/{iteration}/{taskId})
-  const parentDir = path.basename(path.dirname(traceDir));
-  const iteration = parseInt(parentDir, 10) || 0;
+  const iteration = iterationFromTraceDir(traceDir);
   const timing = JSON.parse(timingStr) as Trace['timing'];
   const telemetry = telemetryStr
     ? JSON.parse(telemetryStr) as NonNullable<Trace['telemetry']>
@@ -75,18 +186,21 @@ export async function loadTrace(traceDir: string): Promise<Trace> {
 export async function loadIterationTraces(
   workspacePath: string,
   iteration: number,
+  options: LoadIterationTracesOptions = {},
 ): Promise<Trace[]> {
   const tracesDir = path.join(workspacePath, 'traces', iteration.toString());
   const traces: Trace[] = [];
 
-  try {
-    const taskDirs = await fs.readdir(tracesDir);
-    for (const taskId of taskDirs) {
-      const trace = await loadTrace(path.join(tracesDir, taskId));
+  const traceDirs: string[] = [];
+  await collectTraceDirs(tracesDir, tracesDir, options, traceDirs);
+
+  for (const traceDir of traceDirs.sort()) {
+    try {
+      const trace = await loadTrace(traceDir);
       traces.push(trace);
+    } catch {
+      // Skip malformed trace directories so report generation can continue.
     }
-  } catch {
-    // Directory doesn't exist yet
   }
 
   return traces;

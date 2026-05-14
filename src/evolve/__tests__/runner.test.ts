@@ -10,6 +10,7 @@ import {
   spawnClaude,
   evaluateAll,
 } from '../runner.js';
+import { buildTraceDir } from '../trace.js';
 import type { Task, TaskResult, Score } from '../types.js';
 import type { KairnConfig } from '../../types.js';
 
@@ -921,7 +922,15 @@ describe('evaluateAll', () => {
     await evaluateAll(tasks, harnessPath, workspacePath, 0, config);
 
     const scoreJson = await fs.readFile(
-      path.join(workspacePath, 'traces', '0', 'write-score-1', 'score.json'),
+      path.join(
+        buildTraceDir(
+          workspacePath,
+          0,
+          'write-score-1',
+          { phase: 'evaluation', harnessId: 'iteration-0' },
+        ),
+        'score.json',
+      ),
       'utf-8',
     );
     expect(JSON.parse(scoreJson)).toEqual(score);
@@ -954,8 +963,49 @@ describe('evaluateAll', () => {
     await evaluateAll(tasks, harnessPath, workspacePath, 3, null);
 
     // runTask creates the trace dir — check it was created
-    const traceDir = path.join(workspacePath, 'traces', '3', 'dir-task-1');
+    const traceDir = buildTraceDir(
+      workspacePath,
+      3,
+      'dir-task-1',
+      { phase: 'evaluation', harnessId: 'iteration-3' },
+    );
     const exists = await fs.stat(traceDir).then(() => true).catch(() => false);
     expect(exists).toBe(true);
+  });
+
+  it('uses caller-provided trace namespace for staging evaluations', async () => {
+    const tasks = [makeTask({ id: 'staging-task' })];
+    const harnessPath = path.join(tempDir, 'harness');
+    const workspacePath = path.join(tempDir, 'workspace');
+
+    await evaluateAll(
+      tasks,
+      harnessPath,
+      workspacePath,
+      1,
+      null,
+      undefined,
+      1,
+      1,
+      undefined,
+      undefined,
+      { phase: 'architect-staging', harnessId: 'staging-1' },
+    );
+
+    const stagingTraceDir = buildTraceDir(
+      workspacePath,
+      1,
+      'staging-task',
+      { phase: 'architect-staging', harnessId: 'staging-1' },
+    );
+    const acceptedTraceDir = buildTraceDir(
+      workspacePath,
+      1,
+      'staging-task',
+      { phase: 'evaluation', harnessId: 'iteration-1' },
+    );
+
+    await expect(fs.stat(stagingTraceDir)).resolves.toBeDefined();
+    await expect(fs.stat(acceptedTraceDir)).rejects.toThrow();
   });
 });

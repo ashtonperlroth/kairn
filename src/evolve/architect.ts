@@ -383,7 +383,10 @@ export async function proposeArchitecture(
   meter?: ExecutionMeter,
 ): Promise<ArchitectProposal> {
   const harnessFiles = await readHarnessFiles(harnessPath);
-  const traces = await loadIterationTraces(workspacePath, iteration);
+  const traces = await loadIterationTraces(workspacePath, iteration, {
+    phase: 'evaluation',
+    harnessId: `iteration-${iteration}`,
+  });
 
   // Load knowledge base if not provided externally
   let effectiveKnowledge = knowledgeContext;
