@@ -102,7 +102,7 @@ npm test           # vitest run
 
 If lint is configured (`npm run lint`), run it too. Treat warnings as failures unless explicitly waived in the ticket.
 
-If the change touches CLI entry points, also smoke-test `node dist/cli.js --help` (or the relevant subcommand) and capture the result in the workpad `Validation` section.
+If the issue is a CLI entrypoint ticket or the change touches CLI entry points, also smoke-test `node dist/cli.js --help` (or the relevant subcommand) and capture the result in the workpad `Validation` section.
 
 ## Related skills
 
@@ -163,7 +163,7 @@ If the change touches CLI entry points, also smoke-test `node dist/cli.js --help
 2. Reconcile workpad before new edits: check off done items, expand the plan, ensure `Acceptance Criteria` and `Validation` are current.
 3. Write/update a hierarchical plan in the workpad.
 4. Ensure the workpad has an environment stamp at the top: `<host>:<abs-workdir>@<short-sha>`.
-5. Add explicit acceptance criteria + TODO checklist. Mirror any ticket-provided `Validation`/`Test Plan` requirements as required (non-optional) checkboxes.
+5. Add explicit acceptance criteria, validation, risk, rollback, and TODO checklist sections. Mirror any ticket-provided `Validation`/`Test Plan` requirements as required (non-optional) checkboxes.
 6. Run a principal-style self-review of the plan and refine.
 7. Capture a concrete reproduction signal (command/output) and record it in `Notes`.
 8. Run the `pull` skill to sync `origin/main`. Record merge source, result, and resulting HEAD short SHA in `Notes`.
@@ -276,7 +276,16 @@ Use only when blocked by missing required tools or auth that cannot be resolved 
 - [ ] `npm run build`
 - [ ] `npx tsc --noEmit`
 - [ ] `npm test`
+- [ ] CLI entrypoint smoke test when applicable: `node dist/cli.js --help`
 - [ ] targeted proof: `<command>`
+
+### Risk
+
+- [ ] Risk item and mitigation
+
+### Rollback
+
+- [ ] Rollback plan
 
 ### Notes
 
