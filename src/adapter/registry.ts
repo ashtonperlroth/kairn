@@ -3,6 +3,7 @@ import type { EnvironmentSpec, RegistryTool, RuntimeTarget } from "../types.js";
 import { RUNTIME_TARGETS } from "../types.js";
 import { claudeCodeAdapter } from "./claude-code.js";
 import { buildCodexFileMap, buildCodexRenderedHarness, writeCodexEnvironment } from "./codex.js";
+import { buildGenericFileMap, buildGenericRenderedHarness, writeGenericEnvironment } from "./generic.js";
 import { buildHermesRenderedHarness, writeHermesEnvironment } from "./hermes-agent.js";
 import type { RenderedHarness } from "../rendered-harness.js";
 
@@ -431,6 +432,31 @@ export function assertRuntimeAdapterCompatibility(
     throw new AdapterCompatibilityError(adapter, errors);
   }
 }
+
+registerRuntimeAdapter({
+  target: "generic",
+  displayName: "Generic",
+  aliases: ["default", "portable", "harness"],
+  launchCommand: "agent-runtime",
+  envSetupStrategy: "external",
+  pluginInstructionStrategy: "external",
+  capabilities: {
+    commands: true,
+    hooks: { supported: false },
+    tools: { mcpServers: false },
+    agents: true,
+    skills: true,
+    docs: true,
+    permissions: true,
+    memory: true,
+    limitations: [
+      "Generic output renders portable documentation and does not configure executable hooks or MCP servers.",
+    ],
+  },
+  render: ({ spec, registry }) => buildGenericRenderedHarness(spec, registry),
+  buildFileMap: ({ spec, registry }) => buildGenericFileMap(spec, registry),
+  write: ({ spec, registry, targetDir }) => writeGenericEnvironment(spec, registry, targetDir),
+});
 
 registerRuntimeAdapter(claudeCodeAdapter);
 

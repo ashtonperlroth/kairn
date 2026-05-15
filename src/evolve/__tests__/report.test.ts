@@ -6,7 +6,7 @@ import { writeIterationLog } from '../trace.js';
 import { stringify as yamlStringify } from 'yaml';
 import { estimateTelemetry } from '../cost.js';
 import type { EvolveTelemetry } from '../cost.js';
-import type { Mutation } from '../types.js';
+import type { Mutation, Score } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Test workspace helpers
@@ -33,7 +33,7 @@ async function createWorkspace(opts: {
   iterations: Array<{
     iteration: number;
     score: number;
-    taskResults: Record<string, { pass: boolean; score?: number; variance?: { runs: number; scores: number[]; mean: number; stddev: number } }>;
+    taskResults: Record<string, Score>;
     proposal?: {
       reasoning: string;
       mutations: Mutation[];
@@ -46,6 +46,7 @@ async function createWorkspace(opts: {
     timestamp?: string;
   }>;
   tasks: Array<{ id: string; template: string; description: string; category?: 'harness-sensitivity' | 'substantive' }>;
+  minMeasuredTasksForBest?: number;
 }): Promise<string> {
   const workspace = path.join(tempDir, '.kairn-evolve');
 
@@ -68,6 +69,13 @@ async function createWorkspace(opts: {
     yamlStringify(tasksFile),
     'utf-8',
   );
+  if (opts.minMeasuredTasksForBest !== undefined) {
+    await fs.writeFile(
+      path.join(workspace, 'config.yaml'),
+      yamlStringify({ min_measured_tasks_for_best: opts.minMeasuredTasksForBest }),
+      'utf-8',
+    );
+  }
 
   for (const iter of opts.iterations) {
     await writeIterationLog(workspace, {
@@ -105,6 +113,82 @@ describe('generateMarkdownReport', () => {
     const md = await generateMarkdownReport(workspace);
 
     expect(md).toContain('No iterations found');
+  });
+
+  it('labels carried estimates in markdown reports', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        {
+          iteration: 0,
+          score: 80,
+          taskResults: {
+            'task-1': { pass: true, score: 100 },
+            'task-2': { pass: false, score: 60 },
+          },
+        },
+        {
+          iteration: 1,
+          score: 90,
+          taskResults: {
+            'task-1': {
+              pass: true,
+              score: 100,
+              scoreType: 'estimated',
+              estimateReason: 'pruned',
+              estimatedFromIteration: 0,
+            },
+            'task-2': { pass: true, score: 80, scoreType: 'measured' },
+          },
+        },
+      ],
+      tasks: [
+        { id: 'task-1', template: 'add-feature', description: 'Task 1' },
+        { id: 'task-2', template: 'fix-bug', description: 'Task 2' },
+      ],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+
+    expect(md).toContain('90.0% (1 measured, 1 estimated)');
+    expect(md).toContain('100% est.');
+    expect(md).toContain('| Best measured score | 80.0% |');
+    expect(md).toContain('| Best estimated score | 100.0% (1 estimated tasks) |');
+  });
+
+  it('does not report an under-evidenced estimate as the best iteration', async () => {
+    const workspace = await createWorkspace({
+      minMeasuredTasksForBest: 2,
+      iterations: [
+        {
+          iteration: 0,
+          score: 80,
+          taskResults: {
+            'task-1': { pass: true, score: 80, scoreType: 'measured' },
+            'task-2': { pass: true, score: 80, scoreType: 'measured' },
+          },
+        },
+        {
+          iteration: 1,
+          score: 95,
+          taskResults: {
+            'task-1': { pass: true, score: 100, scoreType: 'estimated' },
+            'task-2': { pass: true, score: 90, scoreType: 'measured' },
+          },
+        },
+      ],
+      tasks: [
+        { id: 'task-1', template: 'add-feature', description: 'Task 1' },
+        { id: 'task-2', template: 'fix-bug', description: 'Task 2' },
+      ],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+    const report = await generateJsonReport(workspace);
+
+    expect(md).toContain('| Best score | 80.0% |');
+    expect(md).toContain('| Best iteration | 0 |');
+    expect(report.overview.bestScore).toBe(80);
+    expect(report.overview.bestIteration).toBe(0);
   });
 
   it('includes overview section with correct scores', async () => {
