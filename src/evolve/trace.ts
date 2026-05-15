@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type { Trace, Score, IterationLog, Proposal } from './types.js';
+import type { Trace, Score, IterationLog, Proposal, Mutation } from './types.js';
 import { aggregateTelemetry, unavailableTelemetry } from './cost.js';
 
 export type TracePhase =
@@ -301,12 +301,31 @@ export async function writeIterationLog(
   log.phase = telemetry.phase;
   log.durationMs = telemetry.durationMs;
 
+  const completeLog: IterationLog = {
+    ...log,
+    telemetry,
+    usage: telemetry.usage,
+    cost: telemetry.cost,
+    model: telemetry.model,
+    phase: telemetry.phase,
+    durationMs: telemetry.durationMs,
+  };
+
+  await fs.writeFile(
+    path.join(iterDir, 'iteration.json'),
+    JSON.stringify(completeLog, null, 2),
+    'utf-8',
+  );
+
   // Write scores (include source field for architect/reactive tracking)
   await fs.writeFile(
     path.join(iterDir, 'scores.json'),
     JSON.stringify({
       score: log.score,
       taskResults: log.taskResults,
+      timestamp: log.timestamp,
+      ...(log.rawScore !== undefined ? { rawScore: log.rawScore } : {}),
+      ...(log.complexityCost !== undefined ? { complexityCost: log.complexityCost } : {}),
       telemetry,
       usage: telemetry.usage,
       cost: telemetry.cost,
@@ -333,6 +352,80 @@ export async function writeIterationLog(
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isMutation(value: unknown): value is Mutation {
+  if (!isRecord(value)) return false;
+  const action = value['action'];
+  return typeof value['file'] === 'string'
+    && (action === 'replace'
+      || action === 'add_section'
+      || action === 'create_file'
+      || action === 'delete_section'
+      || action === 'delete_file')
+    && typeof value['newText'] === 'string'
+    && typeof value['rationale'] === 'string'
+    && (value['oldText'] === undefined || typeof value['oldText'] === 'string');
+}
+
+function isProposal(value: unknown): value is Proposal {
+  if (!isRecord(value)) return false;
+  const expectedImpact = value['expectedImpact'];
+  return typeof value['reasoning'] === 'string'
+    && Array.isArray(value['mutations'])
+    && value['mutations'].every(isMutation)
+    && isRecord(expectedImpact)
+    && Object.values(expectedImpact).every(v => typeof v === 'string');
+}
+
+function parseCompleteIterationLog(raw: string, iteration: number): IterationLog | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed)) return null;
+
+  const proposal = parsed['proposal'];
+  if (proposal !== null && proposal !== undefined && !isProposal(proposal)) return null;
+
+  const telemetry = isRecord(parsed['telemetry'])
+    ? parsed['telemetry'] as unknown as IterationLog['telemetry']
+    : undefined;
+
+  return {
+    iteration,
+    score: typeof parsed['score'] === 'number' ? parsed['score'] : 0,
+    taskResults: isRecord(parsed['taskResults'])
+      ? parsed['taskResults'] as Record<string, Score>
+      : {},
+    telemetry,
+    usage: isRecord(parsed['usage'])
+      ? parsed['usage'] as unknown as IterationLog['usage']
+      : telemetry?.usage,
+    cost: isRecord(parsed['cost'])
+      ? parsed['cost'] as unknown as IterationLog['cost']
+      : telemetry?.cost,
+    model: typeof parsed['model'] === 'string' ? parsed['model'] : telemetry?.model,
+    phase: typeof parsed['phase'] === 'string' ? parsed['phase'] : telemetry?.phase,
+    durationMs: typeof parsed['durationMs'] === 'number' ? parsed['durationMs'] : telemetry?.durationMs,
+    proposal: proposal === undefined ? null : proposal,
+    diffPatch: typeof parsed['diffPatch'] === 'string' && parsed['diffPatch'].length > 0
+      ? parsed['diffPatch']
+      : null,
+    timestamp: typeof parsed['timestamp'] === 'string' ? parsed['timestamp'] : '',
+    ...(typeof parsed['rawScore'] === 'number' ? { rawScore: parsed['rawScore'] } : {}),
+    ...(typeof parsed['complexityCost'] === 'number' ? { complexityCost: parsed['complexityCost'] } : {}),
+    ...(parsed['source'] === 'reactive' || parsed['source'] === 'architect'
+      ? { source: parsed['source'] }
+      : {}),
+  };
+}
+
 /**
  * Load an iteration log from .kairn-evolve/iterations/{N}/.
  * Returns null if the iteration directory doesn't exist.
@@ -349,19 +442,27 @@ export async function loadIterationLog(
     return null;
   }
 
+  const completeLogStr = await fs.readFile(path.join(iterDir, 'iteration.json'), 'utf-8').catch(() => null);
+  if (completeLogStr !== null) {
+    const completeLog = parseCompleteIterationLog(completeLogStr, iteration);
+    if (completeLog) return completeLog;
+  }
+
   const scoresStr = await fs.readFile(path.join(iterDir, 'scores.json'), 'utf-8').catch(() => '{}');
-  const reasoning = await fs.readFile(path.join(iterDir, 'proposer_reasoning.md'), 'utf-8').catch(() => '');
   const diffPatch = await fs.readFile(path.join(iterDir, 'mutation_diff.patch'), 'utf-8').catch(() => '');
 
   const scoresData = JSON.parse(scoresStr) as {
     score?: number;
     taskResults?: Record<string, Score>;
+    timestamp?: string;
     telemetry?: IterationLog['telemetry'];
     usage?: IterationLog['usage'];
     cost?: IterationLog['cost'];
     model?: string;
     phase?: string;
     durationMs?: number;
+    rawScore?: number;
+    complexityCost?: number;
     source?: 'reactive' | 'architect';
   };
   const telemetry = scoresData.telemetry ?? aggregateTelemetry(
@@ -369,10 +470,6 @@ export async function loadIterationLog(
     'iteration',
     scoresData.model ?? 'unknown',
   );
-
-  const proposal: Proposal | null = reasoning
-    ? { reasoning, mutations: [], expectedImpact: {} }
-    : null;
 
   return {
     iteration,
@@ -384,9 +481,11 @@ export async function loadIterationLog(
     model: scoresData.model ?? telemetry.model,
     phase: scoresData.phase ?? telemetry.phase,
     durationMs: scoresData.durationMs ?? telemetry.durationMs,
-    proposal,
+    proposal: null,
     diffPatch: diffPatch || null,
-    timestamp: '',
+    timestamp: scoresData.timestamp ?? '',
+    ...(scoresData.rawScore !== undefined ? { rawScore: scoresData.rawScore } : {}),
+    ...(scoresData.complexityCost !== undefined ? { complexityCost: scoresData.complexityCost } : {}),
     ...(scoresData.source ? { source: scoresData.source } : {}),
   };
 }

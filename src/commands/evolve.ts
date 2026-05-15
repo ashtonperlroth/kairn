@@ -38,9 +38,9 @@ const DEFAULT_CONFIG: EvolveConfig = {
   evalSampleSize: 0,
   samplingStrategy: 'thompson',
   klLambda: 0.1,
-  pbtBranches: 3,
-  architectEvery: 3,
-  schedule: 'explore-exploit',
+  pbtBranches: 1,
+  architectEvery: 0,
+  schedule: 'off',
   architectModel: 'claude-sonnet-4-6',
   budgets: {},
 };
@@ -176,7 +176,7 @@ export const evolveCommand = new Command('evolve')
 // --- kairn evolve init ---
 evolveCommand
   .command('init')
-  .description('Initialize an evolution workspace with auto-generated tasks')
+  .description('Initialize an evolution workspace with auto-generated tasks and explicit cheap cost defaults')
   .option('--workflow <type>', 'Workflow type for template selection', 'feature-development')
   .action(async (options: { workflow: string }) => {
     try {
@@ -329,8 +329,8 @@ evolveCommand
   .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '0')
   .option('--sampling <strategy>', 'Task sampling strategy: thompson or uniform', 'thompson')
   .option('--kl-lambda <n>', 'KL regularization strength (0 = disabled)', '0.1')
-  .option('--architect-every <n>', 'Run architect proposer every N iterations (default: 3)')
-  .option('--schedule <type>', 'Architect schedule: explore-exploit, constant, or adaptive (default: explore-exploit)')
+  .option('--architect-every <n>', 'Run architect proposer every N iterations when schedule is constant/explore-exploit (default: 0, disabled)')
+  .option('--schedule <type>', 'Architect schedule: off, explore-exploit, constant, or adaptive (default: off; architect adds structural proposer calls)')
   .option('--architect-model <model>', 'Model for architect proposer (defaults to proposer model)')
   .option('--budget-run-usd <usd>', 'Hard budget for the full evolve run forecast')
   .option('--budget-task-usd <usd>', 'Hard budget for one task evaluation forecast')
@@ -573,7 +573,7 @@ evolveCommand
           }
 
           if (options.schedule) {
-            const validSchedules = ['explore-exploit', 'constant', 'adaptive'] as const;
+            const validSchedules = ['off', 'explore-exploit', 'constant', 'adaptive'] as const;
             if (!validSchedules.includes(options.schedule as typeof validSchedules[number])) {
               console.log(chalk.red(`  Invalid schedule: ${options.schedule}. Must be one of: ${validSchedules.join(', ')}`));
               process.exit(1);
@@ -723,13 +723,13 @@ evolveCommand
 // --- kairn evolve pbt ---
 evolveCommand
   .command('pbt')
-  .description('Run Population-Based Training with parallel evolution branches')
-  .option('--branches <n>', 'Number of parallel branches', '3')
+  .description('Run Population-Based Training with explicit branch cost multiplier')
+  .option('--branches <n>', 'Number of parallel branches; spend is roughly branches × single-run forecast', '1')
   .option('--iterations <n>', 'Iterations per branch', '5')
-  .option('--parallel <n>', 'Tasks per branch concurrently', '2')
+  .option('--parallel <n>', 'Tasks per branch concurrently', '1')
   .option('--sampling <strategy>', 'Task sampling strategy: thompson or uniform', 'thompson')
   .option('--kl-lambda <n>', 'KL regularization strength (0 = disabled)', '0.1')
-  .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '5')
+  .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '0')
   .option('--budget-run-usd <usd>', 'Hard budget for each branch run forecast')
   .option('--budget-task-usd <usd>', 'Hard budget for one task evaluation forecast')
   .option('--budget-scorer-usd <usd>', 'Hard budget for scorer call forecast')
@@ -770,10 +770,10 @@ evolveCommand
       const evolveConfig = await loadEvolveConfigFromWorkspace(workspace);
 
       // Parse options
-      const numBranches = parseInt(options.branches ?? '3', 10);
+      const numBranches = parseInt(options.branches ?? String(DEFAULT_CONFIG.pbtBranches), 10);
       evolveConfig.maxIterations = parseInt(options.iterations ?? '5', 10);
-      evolveConfig.parallelTasks = parseInt(options.parallel ?? '2', 10);
-      evolveConfig.evalSampleSize = parseInt(options.evalSample ?? '5', 10);
+      evolveConfig.parallelTasks = parseInt(options.parallel ?? String(DEFAULT_CONFIG.parallelTasks), 10);
+      evolveConfig.evalSampleSize = parseInt(options.evalSample ?? String(DEFAULT_CONFIG.evalSampleSize), 10);
       evolveConfig.klLambda = parseFloat(options.klLambda ?? '0.1');
       const sampling = options.sampling ?? 'thompson';
       if (sampling === 'thompson' || sampling === 'uniform') {
