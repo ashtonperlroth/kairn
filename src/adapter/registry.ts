@@ -3,6 +3,7 @@ import type { EnvironmentSpec, RegistryTool, RuntimeTarget } from "../types.js";
 import { RUNTIME_TARGETS } from "../types.js";
 import { claudeCodeAdapter } from "./claude-code.js";
 import { buildCodexFileMap, buildCodexRenderedHarness, writeCodexEnvironment } from "./codex.js";
+import { buildForgeCodeFileMap, buildForgeCodeRenderedHarness, writeForgeCodeEnvironment } from "./forgecode.js";
 import { buildGenericFileMap, buildGenericRenderedHarness, writeGenericEnvironment } from "./generic.js";
 import { buildHermesRenderedHarness, writeHermesEnvironment } from "./hermes-agent.js";
 import { buildOpenCodeFileMap, buildOpenCodeRenderedHarness, writeOpenCodeEnvironment } from "./opencode.js";
@@ -494,9 +495,50 @@ registerRuntimeAdapter({
   launchCommand: "opencode",
   envSetupStrategy: "external",
   pluginInstructionStrategy: "external",
+  capabilities: {
+    commands: true,
+    hooks: { supported: false },
+    tools: { mcpServers: true, commandRequired: true },
+    agents: true,
+    skills: true,
+    docs: true,
+    permissions: true,
+    memory: false,
+    limitations: [
+      "Claude Code hooks are not executable in OpenCode and must be omitted or converted to instructions.",
+      "Persistent memory policies are guidance-only.",
+    ],
+  },
   render: ({ spec, registry }) => buildOpenCodeRenderedHarness(spec, registry),
   buildFileMap: ({ spec, registry }) => buildOpenCodeFileMap(spec, registry),
   write: ({ spec, registry, targetDir }) => writeOpenCodeEnvironment(spec, registry, targetDir),
+});
+
+registerRuntimeAdapter({
+  target: "forgecode",
+  displayName: "ForgeCode",
+  aliases: ["forge-code", "forge_code"],
+  launchCommand: "forge",
+  envSetupStrategy: "external",
+  pluginInstructionStrategy: "external",
+  capabilities: {
+    commands: true,
+    hooks: { supported: false },
+    tools: { mcpServers: true, commandRequired: true },
+    agents: true,
+    skills: false,
+    docs: true,
+    permissions: true,
+    memory: false,
+    limitations: [
+      "Hooks are not executable in ForgeCode and must be omitted or converted to instructions.",
+      "Skills are rendered as guidance only because ForgeCode custom agents are the native project-local extension point.",
+      "MCP tools are referenced for session configuration; per-agent frontmatter is limited to ForgeCode built-in tools.",
+    ],
+  },
+  render: ({ spec, registry }) => buildForgeCodeRenderedHarness(spec, registry),
+  buildFileMap: ({ spec, registry }) => buildForgeCodeFileMap(spec, registry),
+  write: ({ spec, registry, targetDir }) => writeForgeCodeEnvironment(spec, registry, targetDir),
 });
 
 registerRuntimeAdapter({
