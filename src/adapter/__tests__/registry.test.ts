@@ -65,6 +65,7 @@ describe("runtime target registry", () => {
     expect(resolveRuntimeAdapter("default").target).toBe("generic");
     expect(resolveRuntimeAdapter("claude").target).toBe("claude-code");
     expect(resolveRuntimeAdapter("codex-cli").target).toBe("codex");
+    expect(resolveRuntimeAdapter("open-code").target).toBe("opencode");
     expect(resolveRuntimeAdapter("hermes-agent").target).toBe("hermes");
   });
 

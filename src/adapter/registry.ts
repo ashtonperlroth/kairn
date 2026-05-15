@@ -5,6 +5,7 @@ import { claudeCodeAdapter } from "./claude-code.js";
 import { buildCodexFileMap, buildCodexRenderedHarness, writeCodexEnvironment } from "./codex.js";
 import { buildGenericFileMap, buildGenericRenderedHarness, writeGenericEnvironment } from "./generic.js";
 import { buildHermesRenderedHarness, writeHermesEnvironment } from "./hermes-agent.js";
+import { buildOpenCodeFileMap, buildOpenCodeRenderedHarness, writeOpenCodeEnvironment } from "./opencode.js";
 import type { RenderedHarness } from "../rendered-harness.js";
 
 export type EnvSetupStrategy = "project-env-file" | "external";
@@ -484,6 +485,18 @@ registerRuntimeAdapter({
   render: ({ spec, registry }) => buildCodexRenderedHarness(spec, registry),
   buildFileMap: ({ spec, registry }) => buildCodexFileMap(spec, registry),
   write: ({ spec, registry, targetDir }) => writeCodexEnvironment(spec, registry, targetDir),
+});
+
+registerRuntimeAdapter({
+  target: "opencode",
+  displayName: "OpenCode",
+  aliases: ["open-code", "open_code"],
+  launchCommand: "opencode",
+  envSetupStrategy: "external",
+  pluginInstructionStrategy: "external",
+  render: ({ spec, registry }) => buildOpenCodeRenderedHarness(spec, registry),
+  buildFileMap: ({ spec, registry }) => buildOpenCodeFileMap(spec, registry),
+  write: ({ spec, registry, targetDir }) => writeOpenCodeEnvironment(spec, registry, targetDir),
 });
 
 registerRuntimeAdapter({
