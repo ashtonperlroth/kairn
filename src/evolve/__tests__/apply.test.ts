@@ -22,7 +22,20 @@ describe('applyEvolution', () => {
    * Helper: create a minimal workspace with iteration harnesses and score files.
    */
   async function createWorkspace(
-    iterations: Array<{ iter: number; score: number; claudeMd: string }>,
+    iterations: Array<{
+      iter: number;
+      score: number;
+      claudeMd: string;
+      scoreSummary?: {
+        combinedScore: number;
+        measuredScore: number | null;
+        estimatedScore: number | null;
+        measuredTaskCount: number;
+        estimatedTaskCount: number;
+        totalTaskCount: number;
+      };
+    }>,
+    options: { minMeasuredTasksForBest?: number } = {},
   ): Promise<{ workspace: string; projectRoot: string }> {
     const projectRoot = path.join(tempDir, 'project');
     const workspace = path.join(tempDir, 'project', '.kairn-evolve');
@@ -35,7 +48,7 @@ describe('applyEvolution', () => {
     );
 
     // Create workspace with iteration harnesses and scores
-    for (const { iter, score, claudeMd } of iterations) {
+    for (const { iter, score, claudeMd, scoreSummary } of iterations) {
       const iterDir = path.join(workspace, 'iterations', iter.toString());
       const harnessDir = path.join(iterDir, 'harness');
       await fs.mkdir(harnessDir, { recursive: true });
@@ -44,10 +57,17 @@ describe('applyEvolution', () => {
       // Write scores.json so loadIterationLog can find the score
       await fs.writeFile(
         path.join(iterDir, 'scores.json'),
-        JSON.stringify({ score, taskResults: {} }),
+        JSON.stringify({ score, scoreSummary, taskResults: {} }),
       );
       await fs.writeFile(path.join(iterDir, 'proposer_reasoning.md'), '');
       await fs.writeFile(path.join(iterDir, 'mutation_diff.patch'), '');
+    }
+
+    if (options.minMeasuredTasksForBest !== undefined) {
+      await fs.writeFile(
+        path.join(workspace, 'config.yaml'),
+        `min_measured_tasks_for_best: ${options.minMeasuredTasksForBest}\n`,
+      );
     }
 
     return { workspace, projectRoot };
@@ -73,6 +93,74 @@ describe('applyEvolution', () => {
     expect(content).toBe('# Best iteration');
   });
 
+  it('does not auto-apply an unmeasured best estimate', async () => {
+    const { workspace, projectRoot } = await createWorkspace([
+      { iter: 0, score: 80, claudeMd: '# Measured baseline' },
+      {
+        iter: 1,
+        score: 95,
+        claudeMd: '# Estimated best',
+        scoreSummary: {
+          combinedScore: 95,
+          measuredScore: null,
+          estimatedScore: 95,
+          measuredTaskCount: 0,
+          estimatedTaskCount: 2,
+          totalTaskCount: 2,
+        },
+      },
+    ]);
+
+    const result = await applyEvolution(workspace, projectRoot);
+
+    expect(result.iteration).toBe(0);
+    const content = await fs.readFile(
+      path.join(projectRoot, '.claude', 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(content).toBe('# Measured baseline');
+  });
+
+  it('uses the configured measured evidence threshold for best selection', async () => {
+    const { workspace, projectRoot } = await createWorkspace([
+      {
+        iter: 0,
+        score: 80,
+        claudeMd: '# Two measured tasks',
+        scoreSummary: {
+          combinedScore: 80,
+          measuredScore: 80,
+          estimatedScore: null,
+          measuredTaskCount: 2,
+          estimatedTaskCount: 0,
+          totalTaskCount: 2,
+        },
+      },
+      {
+        iter: 1,
+        score: 95,
+        claudeMd: '# One measured task',
+        scoreSummary: {
+          combinedScore: 95,
+          measuredScore: 90,
+          estimatedScore: 100,
+          measuredTaskCount: 1,
+          estimatedTaskCount: 1,
+          totalTaskCount: 2,
+        },
+      },
+    ], { minMeasuredTasksForBest: 2 });
+
+    const result = await applyEvolution(workspace, projectRoot);
+
+    expect(result.iteration).toBe(0);
+    const content = await fs.readFile(
+      path.join(projectRoot, '.claude', 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(content).toBe('# Two measured tasks');
+  });
+
   it('applies a specific iteration when targetIteration is provided', async () => {
     const { workspace, projectRoot } = await createWorkspace([
       { iter: 0, score: 60, claudeMd: '# Baseline' },
@@ -89,6 +177,28 @@ describe('applyEvolution', () => {
       'utf-8',
     );
     expect(content).toBe('# Iteration 2');
+  });
+
+  it('does not apply a requested iteration without measured evidence', async () => {
+    const { workspace, projectRoot } = await createWorkspace([
+      {
+        iter: 0,
+        score: 95,
+        claudeMd: '# Estimated iteration',
+        scoreSummary: {
+          combinedScore: 95,
+          measuredScore: null,
+          estimatedScore: 95,
+          measuredTaskCount: 0,
+          estimatedTaskCount: 2,
+          totalTaskCount: 2,
+        },
+      },
+    ]);
+
+    await expect(applyEvolution(workspace, projectRoot, 0)).rejects.toThrow(
+      'No apply-ready iteration found with measured score evidence.',
+    );
   });
 
   it('generates a diff preview between current .claude/ and target harness', async () => {
