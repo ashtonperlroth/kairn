@@ -488,6 +488,47 @@ describe('writeIterationLog', () => {
     expect(parsed.taskResults).toEqual(taskResults);
   });
 
+  it('writes complete iteration evidence to iteration.json', async () => {
+    const telemetry = makeTrace().telemetry!;
+    const proposal: Proposal = {
+      reasoning: 'Complete evidence reasoning',
+      mutations: [{
+        file: 'CLAUDE.md',
+        action: 'replace',
+        oldText: 'old',
+        newText: 'new',
+        rationale: 'Preserve rationale',
+      }],
+      expectedImpact: { 'task-a': 'improves scoring' },
+    };
+    const log: IterationLog = {
+      iteration: 5,
+      score: 74,
+      rawScore: 82,
+      complexityCost: 0.08,
+      taskResults: { 'task-a': { pass: true, score: 74, reasoning: 'scored' } },
+      proposal,
+      diffPatch: 'diff --git a/CLAUDE.md b/CLAUDE.md',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      telemetry: { ...telemetry, phase: 'iteration' },
+      source: 'architect',
+    };
+
+    await writeIterationLog(tempDir, log);
+
+    const content = await fs.readFile(
+      path.join(tempDir, 'iterations', '5', 'iteration.json'),
+      'utf-8',
+    );
+    const parsed = JSON.parse(content) as IterationLog;
+    expect(parsed.proposal).toEqual(proposal);
+    expect(parsed.rawScore).toBe(82);
+    expect(parsed.complexityCost).toBe(0.08);
+    expect(parsed.source).toBe('architect');
+    expect(parsed.timestamp).toBe('2026-01-01T00:00:00.000Z');
+    expect(parsed.cost?.estimatedUSD).toBe(0.00033);
+  });
+
   it('writes proposer_reasoning.md from proposal.reasoning', async () => {
     const proposal: Proposal = {
       reasoning: 'This is the proposer reasoning text',
@@ -585,16 +626,24 @@ describe('loadIterationLog', () => {
     };
     const proposal: Proposal = {
       reasoning: 'Round-trip reasoning',
-      mutations: [],
+      mutations: [{
+        file: 'CLAUDE.md',
+        action: 'add_section',
+        newText: '## Rule',
+        rationale: 'Round-trip rationale',
+      }],
       expectedImpact: { 'task-a': 'should improve' },
     };
     const original: IterationLog = {
       iteration: 1,
       score: 0.85,
+      rawScore: 0.9,
+      complexityCost: 0.05,
       taskResults,
       proposal,
       diffPatch: 'some diff content',
       timestamp: '2026-01-01T00:00:00.000Z',
+      source: 'reactive',
     };
 
     await writeIterationLog(tempDir, original);
@@ -604,8 +653,12 @@ describe('loadIterationLog', () => {
     expect(loaded!.iteration).toBe(1);
     expect(loaded!.score).toBe(0.85);
     expect(loaded!.taskResults).toEqual(taskResults);
-    expect(loaded!.proposal?.reasoning).toBe('Round-trip reasoning');
+    expect(loaded!.proposal).toEqual(proposal);
     expect(loaded!.diffPatch).toBe('some diff content');
+    expect(loaded!.timestamp).toBe('2026-01-01T00:00:00.000Z');
+    expect(loaded!.rawScore).toBe(0.9);
+    expect(loaded!.complexityCost).toBe(0.05);
+    expect(loaded!.source).toBe('reactive');
   });
 
   it('round-trips iteration telemetry while preserving legacy score fields', async () => {
@@ -650,6 +703,25 @@ describe('loadIterationLog', () => {
     const loaded = await loadIterationLog(tempDir, 3);
     expect(loaded).not.toBeNull();
     expect(loaded!.proposal).toBeNull();
+  });
+
+  it('does not synthesize a placeholder proposal from legacy reasoning files', async () => {
+    const iterDir = path.join(tempDir, 'iterations', '6');
+    await fs.mkdir(iterDir, { recursive: true });
+    await fs.writeFile(
+      path.join(iterDir, 'scores.json'),
+      JSON.stringify({ score: 0.5, taskResults: {}, timestamp: '2026-01-01T00:00:00.000Z' }),
+      'utf-8',
+    );
+    await fs.writeFile(path.join(iterDir, 'proposer_reasoning.md'), 'Legacy reasoning', 'utf-8');
+    await fs.writeFile(path.join(iterDir, 'mutation_diff.patch'), 'legacy diff', 'utf-8');
+
+    const loaded = await loadIterationLog(tempDir, 6);
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.proposal).toBeNull();
+    expect(loaded!.diffPatch).toBe('legacy diff');
+    expect(loaded!.timestamp).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('returns null diffPatch when mutation_diff.patch is empty', async () => {

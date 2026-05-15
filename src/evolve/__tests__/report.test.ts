@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 import { generateMarkdownReport, generateJsonReport } from '../report.js';
+import { writeIterationLog } from '../trace.js';
 import { stringify as yamlStringify } from 'yaml';
 import { estimateTelemetry } from '../cost.js';
 import type { EvolveTelemetry } from '../cost.js';
+import type { Mutation } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Test workspace helpers
@@ -34,10 +36,14 @@ async function createWorkspace(opts: {
     taskResults: Record<string, { pass: boolean; score?: number; variance?: { runs: number; scores: number[]; mean: number; stddev: number } }>;
     proposal?: {
       reasoning: string;
-      mutations: Array<{ file: string; action: string; newText: string; rationale: string }>;
+      mutations: Mutation[];
+      expectedImpact?: Record<string, string>;
     };
     source?: 'reactive' | 'architect';
     telemetry?: EvolveTelemetry;
+    rawScore?: number;
+    complexityCost?: number;
+    timestamp?: string;
   }>;
   tasks: Array<{ id: string; template: string; description: string; category?: 'harness-sensitivity' | 'substantive' }>;
 }): Promise<string> {
@@ -63,40 +69,25 @@ async function createWorkspace(opts: {
     'utf-8',
   );
 
-  // Write iteration logs
   for (const iter of opts.iterations) {
-    const iterDir = path.join(workspace, 'iterations', iter.iteration.toString());
-    await fs.mkdir(iterDir, { recursive: true });
-
-    await fs.writeFile(
-      path.join(iterDir, 'scores.json'),
-      JSON.stringify({
-        score: iter.score,
-        taskResults: iter.taskResults,
-        ...(iter.telemetry ? {
-          telemetry: iter.telemetry,
-          usage: iter.telemetry.usage,
-          cost: iter.telemetry.cost,
-          model: iter.telemetry.model,
-          phase: iter.telemetry.phase,
-          durationMs: iter.telemetry.durationMs,
-        } : {}),
-        ...(iter.source ? { source: iter.source } : {}),
-      }, null, 2),
-      'utf-8',
-    );
-
-    await fs.writeFile(
-      path.join(iterDir, 'proposer_reasoning.md'),
-      iter.proposal?.reasoning ?? '',
-      'utf-8',
-    );
-
-    await fs.writeFile(
-      path.join(iterDir, 'mutation_diff.patch'),
-      '',
-      'utf-8',
-    );
+    await writeIterationLog(workspace, {
+      iteration: iter.iteration,
+      score: iter.score,
+      taskResults: iter.taskResults,
+      proposal: iter.proposal
+        ? {
+            reasoning: iter.proposal.reasoning,
+            mutations: iter.proposal.mutations,
+            expectedImpact: iter.proposal.expectedImpact ?? {},
+          }
+        : null,
+      diffPatch: null,
+      timestamp: iter.timestamp ?? '2026-01-01T00:00:00.000Z',
+      ...(iter.telemetry ? { telemetry: iter.telemetry } : {}),
+      ...(iter.source ? { source: iter.source } : {}),
+      ...(iter.rawScore !== undefined ? { rawScore: iter.rawScore } : {}),
+      ...(iter.complexityCost !== undefined ? { complexityCost: iter.complexityCost } : {}),
+    });
   }
 
   return workspace;
@@ -295,6 +286,62 @@ describe('generateJsonReport', () => {
     expect(report.iterations[0].status).toBe('baseline');
     expect(report.iterations[1].iteration).toBe(1);
     expect(report.iterations[1].score).toBe(80);
+  });
+
+  it('reports mutation counts from complete persisted proposals after reload', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+        {
+          iteration: 1,
+          score: 80,
+          taskResults: { 'task-1': { pass: true, score: 80 } },
+          proposal: {
+            reasoning: 'Use stricter verification',
+            mutations: [{
+              file: 'CLAUDE.md',
+              action: 'add_section',
+              newText: '## Verify',
+              rationale: 'Require explicit validation',
+            }],
+            expectedImpact: { 'task-1': 'higher pass rate' },
+          },
+        },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const report = await generateJsonReport(workspace);
+
+    expect(report.iterations[1].mutationCount).toBe(1);
+  });
+
+  it('reports mutation rationale in counterfactual reasoning after reload', async () => {
+    const workspace = await createWorkspace({
+      iterations: [
+        { iteration: 0, score: 50, taskResults: { 'task-1': { pass: false, score: 50 } } },
+        {
+          iteration: 1,
+          score: 55,
+          taskResults: { 'task-1': { pass: false, score: 55 } },
+          proposal: {
+            reasoning: 'Improve validation instructions',
+            mutations: [{
+              file: 'CLAUDE.md',
+              action: 'add_section',
+              newText: '## Validate',
+              rationale: 'Require exact test evidence',
+            }],
+          },
+        },
+        { iteration: 2, score: 85, taskResults: { 'task-1': { pass: true, score: 85 } } },
+      ],
+      tasks: [{ id: 'task-1', template: 'add-feature', description: 'Task' }],
+    });
+
+    const md = await generateMarkdownReport(workspace);
+
+    expect(md).toContain('add_section in CLAUDE.md: Require exact test evidence');
   });
 
   it('leaderboard tracks per-task scores across iterations', async () => {
