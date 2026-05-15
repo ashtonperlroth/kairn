@@ -53,6 +53,7 @@ function countScorerCalls(tasks: Task[], taskRunsPerIteration: number): number {
 
 function countArchitectCalls(config: EvolveConfig): number {
   if (config.maxIterations <= 2) return 0;
+  if (config.schedule === 'off') return 0;
   const candidateIterations = Array.from(
     { length: Math.max(0, config.maxIterations - 2) },
     (_, index) => index + 1,
@@ -64,6 +65,7 @@ function countArchitectCalls(config: EvolveConfig): number {
 
   return candidateIterations.filter((iteration) => {
     if (config.schedule === 'explore-exploit' && iteration <= 2) return true;
+    if (config.architectEvery < 1) return false;
     return iteration % config.architectEvery === 0;
   }).length;
 }

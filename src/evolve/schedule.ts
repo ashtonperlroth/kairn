@@ -18,7 +18,7 @@
 export function shouldUseArchitect(
   iteration: number,
   maxIterations: number,
-  schedule: 'explore-exploit' | 'constant' | 'adaptive',
+  schedule: 'off' | 'explore-exploit' | 'constant' | 'adaptive',
   architectEvery: number,
   recentScores?: number[],
 ): boolean {
@@ -29,13 +29,18 @@ export function shouldUseArchitect(
   if (iteration >= maxIterations - 1) return false;
 
   switch (schedule) {
+    case 'off':
+      return false;
+
     case 'constant':
+      if (architectEvery < 1) return false;
       return iteration % architectEvery === 0;
 
     case 'explore-exploit': {
       // Early exploration: iterations 1-2 use architect
       if (iteration <= 2) return true;
       // Mid-run: architect every Nth iteration
+      if (architectEvery < 1) return false;
       if (iteration % architectEvery === 0) return true;
       return false;
     }

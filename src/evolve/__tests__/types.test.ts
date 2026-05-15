@@ -74,11 +74,12 @@ describe("evolve types", () => {
 
     it("accepts all valid schedule types", () => {
       const schedules: EvolveConfig["schedule"][] = [
+        "off",
         "explore-exploit",
         "constant",
         "adaptive",
       ];
-      expect(schedules).toHaveLength(3);
+      expect(schedules).toHaveLength(4);
     });
   });
 

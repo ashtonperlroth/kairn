@@ -146,8 +146,22 @@ describe("createEvolveWorkspace", () => {
     expect(parsed.model).toBe("test-model");
     expect(parsed.proposer_model).toBe("test-proposer");
     expect(parsed.scorer).toBe("llm-judge");
-    expect(parsed.max_iterations).toBe(10);
-    expect(parsed.parallel_tasks).toBe(2);
+    expect(parsed).toMatchObject({
+      max_iterations: 10,
+      parallel_tasks: 2,
+      runs_per_task: 1,
+      max_mutations_per_iteration: 3,
+      prune_threshold: 95,
+      max_task_drop: 20,
+      use_principal: false,
+      eval_sample_size: 0,
+      sampling_strategy: "thompson",
+      kl_lambda: 0.1,
+      pbt_branches: 3,
+      architect_every: 3,
+      schedule: "explore-exploit",
+      architect_model: "claude-sonnet-4-6",
+    });
   });
 
   it("writes budget config fields when provided", async () => {

@@ -95,7 +95,7 @@ export interface EvolveConfig {
   pbtBranches: number;
   rngSeed?: number;  // per-branch seed for Thompson Sampling (default: 42)
   architectEvery: number;
-  schedule: 'explore-exploit' | 'constant' | 'adaptive';
+  schedule: 'off' | 'explore-exploit' | 'constant' | 'adaptive';
   architectModel: string;
   budgets?: EvolveBudgetConfig;
 }
