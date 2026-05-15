@@ -3,6 +3,9 @@ import path from 'path';
 import { copyDir } from './baseline.js';
 import { generateDiff } from './mutator.js';
 import { loadIterationLog } from './trace.js';
+import { findBestIterationWithMeasuredEvidence, hasMeasuredEvidence } from './score-model.js';
+import { loadMinMeasuredTasksForBest } from './workspace-config.js';
+import type { IterationLog } from './types.js';
 
 export interface ApplyResult {
   iteration: number;
@@ -44,19 +47,20 @@ async function findBestIteration(
   workspacePath: string,
   iterations: number[],
 ): Promise<number> {
-  let bestIter = iterations[0];
-  let bestScore = -Infinity;
+  const minMeasuredTasksForBest = await loadMinMeasuredTasksForBest(workspacePath);
+  const logs: IterationLog[] = [];
 
   for (const iter of iterations) {
     const log = await loadIterationLog(workspacePath, iter);
-    const score = log?.score ?? 0;
-    if (score > bestScore) {
-      bestScore = score;
-      bestIter = iter;
-    }
+    if (log) logs.push(log);
   }
 
-  return bestIter;
+  const best = findBestIterationWithMeasuredEvidence(logs, minMeasuredTasksForBest);
+  if (!best) {
+    throw new Error('No apply-ready iteration found with measured score evidence.');
+  }
+
+  return best.iteration;
 }
 
 /**
@@ -116,6 +120,7 @@ async function findBestPBTHarness(
   let bestScore = -Infinity;
   let bestPath = '';
   let bestLabel = '';
+  const minMeasuredTasksForBest = await loadMinMeasuredTasksForBest(workspacePath);
 
   // Check each branch's best iteration
   for (const branchId of branchEntries) {
@@ -123,8 +128,14 @@ async function findBestPBTHarness(
     const branchIterations = await listIterations(branchPath);
     if (branchIterations.length === 0) continue;
 
-    const bestIter = await findBestIteration(branchPath, branchIterations);
+    let bestIter: number;
+    try {
+      bestIter = await findBestIteration(branchPath, branchIterations);
+    } catch {
+      continue;
+    }
     const log = await loadIterationLog(branchPath, bestIter);
+    if (!log || !hasMeasuredEvidence(log, minMeasuredTasksForBest)) continue;
     const score = log?.score ?? 0;
 
     if (score > bestScore) {
@@ -140,7 +151,10 @@ async function findBestPBTHarness(
     await fs.access(synthesisHarness);
     // Synthesis doesn't have iteration logs — check for a score file
     const synthesisLog = await loadIterationLog(workspacePath, 999);
-    const synthScore = synthesisLog?.score ?? 0;
+    if (!synthesisLog || !hasMeasuredEvidence(synthesisLog, minMeasuredTasksForBest)) {
+      return bestPath ? { harnessPath: bestPath, label: bestLabel } : null;
+    }
+    const synthScore = synthesisLog.score;
     if (synthScore > bestScore) {
       bestScore = synthScore;
       bestPath = synthesisHarness;
@@ -220,6 +234,12 @@ export async function applyEvolution(
     iter = targetIteration;
   } else {
     iter = await findBestIteration(workspacePath, iterations);
+  }
+
+  const selectedLog = await loadIterationLog(workspacePath, iter);
+  const minMeasuredTasksForBest = await loadMinMeasuredTasksForBest(workspacePath);
+  if (!selectedLog || !hasMeasuredEvidence(selectedLog, minMeasuredTasksForBest)) {
+    throw new Error('No apply-ready iteration found with measured score evidence.');
   }
 
   const harnessPath = path.join(
