@@ -9,11 +9,38 @@ import type { RenderedHarness } from "../rendered-harness.js";
 
 export type EnvSetupStrategy = "project-env-file" | "external";
 export type PluginInstructionStrategy = "project-cli" | "external";
+export type AdapterValidationSeverity = "warning" | "error";
 
 export interface RuntimeWriteContext {
   spec: EnvironmentSpec;
   registry: RegistryTool[];
   targetDir: string;
+}
+
+export interface RuntimeAdapterCapabilities {
+  commands: boolean;
+  hooks: {
+    supported: boolean;
+    events?: string[];
+    handlerTypes?: Array<"command" | "prompt">;
+  };
+  tools: {
+    mcpServers: boolean;
+    commandRequired?: boolean;
+  };
+  agents: boolean;
+  skills: boolean;
+  docs: boolean;
+  permissions: boolean;
+  memory: boolean;
+  limitations: string[];
+}
+
+export interface AdapterValidationIssue {
+  severity: AdapterValidationSeverity;
+  target: RuntimeTarget;
+  feature: string;
+  message: string;
 }
 
 export interface RuntimeAdapter {
@@ -23,10 +50,25 @@ export interface RuntimeAdapter {
   launchCommand: string;
   envSetupStrategy: EnvSetupStrategy;
   pluginInstructionStrategy: PluginInstructionStrategy;
+  capabilities: RuntimeAdapterCapabilities;
   render: (context: RuntimeWriteContext) => RenderedHarness;
   resolveTargetRoot?: (context: RuntimeWriteContext) => string;
   buildFileMap?: (context: RuntimeWriteContext) => Map<string, string>;
   write: (context: RuntimeWriteContext) => Promise<string[]>;
+}
+
+export class AdapterCompatibilityError extends Error {
+  constructor(
+    public readonly adapter: RuntimeAdapter,
+    public readonly issues: AdapterValidationIssue[],
+  ) {
+    super(
+      `Runtime target "${adapter.target}" does not support this harness: ${issues
+        .map((issue) => issue.message)
+        .join("; ")}`,
+    );
+    this.name = "AdapterCompatibilityError";
+  }
 }
 
 export class UnknownRuntimeTargetError extends Error {
@@ -141,6 +183,256 @@ export function resolveRuntimeAdapter(input: string | undefined): RuntimeAdapter
   return adapter;
 }
 
+function hasRecords(value: Record<string, unknown> | undefined): boolean {
+  return value !== undefined && Object.keys(value).length > 0;
+}
+
+function collectHarnessHookEntries(spec: EnvironmentSpec): Array<{
+  event?: string;
+  type?: "command" | "prompt";
+}> {
+  const hooks: Array<{ event?: string; type?: "command" | "prompt" }> = [];
+  const rawSettings = spec.harness.settings;
+  const rawHooks =
+    rawSettings["hooks"] && typeof rawSettings["hooks"] === "object"
+      ? (rawSettings["hooks"] as Record<string, unknown>)
+      : {};
+
+  for (const [event, entries] of Object.entries(rawHooks)) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      const handlers = (entry as Record<string, unknown>)["hooks"];
+      if (!Array.isArray(handlers)) {
+        hooks.push({ event });
+        continue;
+      }
+      for (const handler of handlers) {
+        if (!handler || typeof handler !== "object") {
+          hooks.push({ event });
+          continue;
+        }
+        const type = (handler as Record<string, unknown>)["type"];
+        hooks.push({
+          event,
+          type: type === "command" || type === "prompt" ? type : undefined,
+        });
+      }
+    }
+  }
+
+  for (const hook of spec.program?.hooks ?? []) {
+    for (const handler of hook.handlers) {
+      hooks.push({ event: hook.event, type: handler.type });
+    }
+  }
+
+  if (hasRecords(spec.harness.hooks)) {
+    for (const name of Object.keys(spec.harness.hooks)) {
+      hooks.push({ event: name });
+    }
+  }
+
+  return hooks;
+}
+
+function collectToolBindings(
+  spec: EnvironmentSpec,
+  registry: RegistryTool[] = [],
+): Array<{ id: string; command?: string }> {
+  const tools: Array<{ id: string; command?: string }> = [];
+
+  for (const tool of spec.program?.tools ?? []) {
+    tools.push({ id: tool.id, command: tool.command });
+  }
+
+  for (const [serverName, serverConfig] of Object.entries(spec.harness.mcp_config ?? {})) {
+    const command =
+      serverConfig && typeof serverConfig === "object"
+        ? (serverConfig as Record<string, unknown>)["command"]
+        : undefined;
+    tools.push({
+      id: `tool:${serverName}`,
+      command: typeof command === "string" ? command : undefined,
+    });
+  }
+
+  for (const selected of spec.tools) {
+    const registryTool = registry.find((tool) => tool.id === selected.tool_id);
+    if (!registryTool) continue;
+    const configs = [
+      ...Object.entries(registryTool.install.mcp_config ?? {}),
+      ...Object.entries(
+        registryTool.install.hermes?.mcp_server
+          ? { [registryTool.id]: registryTool.install.hermes.mcp_server }
+          : {},
+      ),
+    ];
+    for (const [serverName, serverConfig] of configs) {
+      const command =
+        serverConfig && typeof serverConfig === "object"
+          ? (serverConfig as Record<string, unknown>)["command"]
+          : undefined;
+      tools.push({
+        id: `registry-tool:${serverName}`,
+        command: typeof command === "string" ? command : undefined,
+      });
+    }
+  }
+
+  return tools;
+}
+
+function countCommands(spec: EnvironmentSpec): number {
+  return spec.program?.commands.length ?? Object.keys(spec.harness.commands ?? {}).length;
+}
+
+function pushUnsupportedFeatureWarning(
+  issues: AdapterValidationIssue[],
+  adapter: RuntimeAdapter,
+  feature: string,
+  count: number,
+  supported: boolean,
+): void {
+  if (count === 0 || supported) return;
+  issues.push({
+    severity: "warning",
+    target: adapter.target,
+    feature,
+    message: `${adapter.displayName} has limited ${feature} support; ${count} ${feature} item${count === 1 ? "" : "s"} may be rendered as portable instructions instead of native runtime features.`,
+  });
+}
+
+export function validateRuntimeAdapterCompatibility(
+  adapter: RuntimeAdapter,
+  spec: EnvironmentSpec,
+  registry: RegistryTool[] = [],
+): AdapterValidationIssue[] {
+  const issues: AdapterValidationIssue[] = [];
+  const capabilities = adapter.capabilities;
+
+  const commandCount = countCommands(spec);
+  if (commandCount > 0 && !capabilities.commands) {
+    issues.push({
+      severity: "error",
+      target: adapter.target,
+      feature: "commands",
+      message: `${adapter.displayName} does not support workflow commands, but this harness defines ${commandCount}.`,
+    });
+  }
+
+  const hooks = collectHarnessHookEntries(spec);
+  if (hooks.length > 0 && !capabilities.hooks.supported) {
+    issues.push({
+      severity: "error",
+      target: adapter.target,
+      feature: "hooks",
+      message: `${adapter.displayName} does not support hooks, but this harness defines ${hooks.length}.`,
+    });
+  } else if (hooks.length > 0) {
+    const supportedEvents = capabilities.hooks.events
+      ? new Set(capabilities.hooks.events)
+      : null;
+    const supportedTypes = capabilities.hooks.handlerTypes
+      ? new Set(capabilities.hooks.handlerTypes)
+      : null;
+    for (const hook of hooks) {
+      if (supportedEvents && hook.event && !supportedEvents.has(hook.event)) {
+        issues.push({
+          severity: "error",
+          target: adapter.target,
+          feature: "hooks",
+          message: `${adapter.displayName} does not support the ${hook.event} hook event.`,
+        });
+      }
+      if (supportedTypes && hook.type && !supportedTypes.has(hook.type)) {
+        issues.push({
+          severity: "error",
+          target: adapter.target,
+          feature: "hooks",
+          message: `${adapter.displayName} does not support ${hook.type} hook handlers.`,
+        });
+      }
+    }
+  }
+
+  const tools = collectToolBindings(spec, registry);
+  if (tools.length > 0 && !capabilities.tools.mcpServers) {
+    issues.push({
+      severity: "error",
+      target: adapter.target,
+      feature: "tools",
+      message: `${adapter.displayName} does not support MCP tools, but this harness defines ${tools.length}.`,
+    });
+  } else if (capabilities.tools.commandRequired) {
+    const commandlessTool = tools.find((tool) => !tool.command);
+    if (commandlessTool) {
+      issues.push({
+        severity: "error",
+        target: adapter.target,
+        feature: "tools",
+        message: `${adapter.displayName} requires MCP tools to declare a command, but ${commandlessTool.id} does not.`,
+      });
+    }
+  }
+
+  pushUnsupportedFeatureWarning(
+    issues,
+    adapter,
+    "agents",
+    spec.program?.agents.length ?? Object.keys(spec.harness.agents ?? {}).length,
+    capabilities.agents,
+  );
+  pushUnsupportedFeatureWarning(
+    issues,
+    adapter,
+    "skills",
+    spec.program?.skills.length ?? Object.keys(spec.harness.skills ?? {}).length,
+    capabilities.skills,
+  );
+  pushUnsupportedFeatureWarning(
+    issues,
+    adapter,
+    "docs",
+    spec.program?.docs.length ?? Object.keys(spec.harness.docs ?? {}).length,
+    capabilities.docs,
+  );
+
+  const permissionRuleCount = spec.program?.permissions.rules.length ?? 0;
+  if (permissionRuleCount > 0 && !capabilities.permissions) {
+    issues.push({
+      severity: "warning",
+      target: adapter.target,
+      feature: "permissions",
+      message: `${adapter.displayName} has limited permissions support; ${permissionRuleCount} permission rule${permissionRuleCount === 1 ? "" : "s"} may be rendered as guidance only.`,
+    });
+  }
+
+  if (spec.program?.memory.mode && spec.program.memory.mode !== "none" && !capabilities.memory) {
+    issues.push({
+      severity: "warning",
+      target: adapter.target,
+      feature: "memory",
+      message: `${adapter.displayName} does not support native memory policies; ${spec.program.memory.mode} memory will be rendered as guidance only.`,
+    });
+  }
+
+  return issues;
+}
+
+export function assertRuntimeAdapterCompatibility(
+  adapter: RuntimeAdapter,
+  spec: EnvironmentSpec,
+  registry: RegistryTool[] = [],
+): void {
+  const errors = validateRuntimeAdapterCompatibility(adapter, spec, registry).filter(
+    (issue) => issue.severity === "error",
+  );
+  if (errors.length > 0) {
+    throw new AdapterCompatibilityError(adapter, errors);
+  }
+}
+
 registerRuntimeAdapter({
   target: "generic",
   displayName: "Generic",
@@ -148,6 +440,19 @@ registerRuntimeAdapter({
   launchCommand: "agent-runtime",
   envSetupStrategy: "external",
   pluginInstructionStrategy: "external",
+  capabilities: {
+    commands: true,
+    hooks: { supported: false },
+    tools: { mcpServers: false },
+    agents: true,
+    skills: true,
+    docs: true,
+    permissions: true,
+    memory: true,
+    limitations: [
+      "Generic output renders portable documentation and does not configure executable hooks or MCP servers.",
+    ],
+  },
   render: ({ spec, registry }) => buildGenericRenderedHarness(spec, registry),
   buildFileMap: ({ spec, registry }) => buildGenericFileMap(spec, registry),
   write: ({ spec, registry, targetDir }) => writeGenericEnvironment(spec, registry, targetDir),
@@ -162,6 +467,20 @@ registerRuntimeAdapter({
   launchCommand: "codex",
   envSetupStrategy: "external",
   pluginInstructionStrategy: "external",
+  capabilities: {
+    commands: true,
+    hooks: { supported: false },
+    tools: { mcpServers: true, commandRequired: true },
+    agents: true,
+    skills: true,
+    docs: true,
+    permissions: true,
+    memory: false,
+    limitations: [
+      "Claude Code hooks are not executable in Codex and must be omitted or converted to instructions.",
+      "Persistent memory policies are guidance-only.",
+    ],
+  },
   render: ({ spec, registry }) => buildCodexRenderedHarness(spec, registry),
   buildFileMap: ({ spec, registry }) => buildCodexFileMap(spec, registry),
   write: ({ spec, registry, targetDir }) => writeCodexEnvironment(spec, registry, targetDir),
@@ -174,6 +493,20 @@ registerRuntimeAdapter({
   launchCommand: "hermes",
   envSetupStrategy: "external",
   pluginInstructionStrategy: "external",
+  capabilities: {
+    commands: true,
+    hooks: { supported: false },
+    tools: { mcpServers: true, commandRequired: true },
+    agents: false,
+    skills: true,
+    docs: false,
+    permissions: false,
+    memory: false,
+    limitations: [
+      "Commands and rules are rendered as Hermes skills.",
+      "Agents, docs, permissions, hooks, and memory policies are not native Hermes features.",
+    ],
+  },
   render: ({ spec, registry }) => buildHermesRenderedHarness(spec, registry),
   resolveTargetRoot: () => os.homedir(),
   write: ({ spec, registry }) => writeHermesEnvironment(spec, registry),

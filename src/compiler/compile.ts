@@ -12,6 +12,12 @@ import { linkHarness } from "./linker.js";
 import { dispatchAgent } from "./agents/dispatch.js";
 import { renderClaudeMd } from "../ir/renderer.js";
 import { createHarnessProgramFromIR } from "../ir/program.js";
+import {
+  resolveRuntimeAdapter,
+  UnsupportedRuntimeTargetError,
+  UnknownRuntimeTargetError,
+  validateRuntimeAdapterCompatibility,
+} from "../adapter/registry.js";
 import type { EnvironmentSpec, RegistryTool, Clarification, SkeletonSpec, CompileProgress, IntentPattern, RuntimeTarget } from "../types.js";
 import { RUNTIME_TARGETS } from "../types.js";
 import type { HarnessIR } from "../ir/types.js";
@@ -410,6 +416,17 @@ export async function compile(
   };
 
   const warnings = validateSpec(spec);
+  try {
+    const adapter = resolveRuntimeAdapter(config.default_runtime);
+    const adapterWarnings = validateRuntimeAdapterCompatibility(adapter, spec, registry).filter(
+      (issue) => issue.severity === "warning",
+    );
+    warnings.push(...adapterWarnings.map((issue) => issue.message));
+  } catch (err) {
+    if (!(err instanceof UnknownRuntimeTargetError || err instanceof UnsupportedRuntimeTargetError)) {
+      throw err;
+    }
+  }
   for (const w of warnings) {
     onProgress?.({ phase: 'done', status: 'warning', message: `⚠ ${w}` });
   }
