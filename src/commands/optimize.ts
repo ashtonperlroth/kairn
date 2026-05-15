@@ -7,7 +7,12 @@ import path from "path";
 import { loadConfig } from "../config.js";
 import { compile } from "../compiler/compile.js";
 import { summarizeSpec } from "../adapter/claude-code.js";
-import { formatRuntimeTargetList, type RuntimeAdapter } from "../adapter/registry.js";
+import {
+  AdapterCompatibilityError,
+  assertRuntimeAdapterCompatibility,
+  formatRuntimeTargetList,
+  type RuntimeAdapter,
+} from "../adapter/registry.js";
 import { loadRegistry } from "../registry/loader.js";
 import { scanProject } from "../scanner/scan.js";
 import type { ProjectProfile } from "../scanner/scan.js";
@@ -55,6 +60,21 @@ async function generateDiff(
   adapter: RuntimeAdapter,
   registry: RegistryTool[],
 ): Promise<FileDiff[]> {
+  try {
+    assertRuntimeAdapterCompatibility(adapter, spec, registry);
+  } catch (err) {
+    if (err instanceof AdapterCompatibilityError) {
+      console.log(
+        ui.errorBox(
+          "Runtime compatibility error",
+          err.issues.map((issue) => `- ${issue.message}`).join("\n"),
+        ),
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
+
   const context = { spec, registry, targetDir };
   const rendered = adapter.render(context);
   const renderRoot = adapter.resolveTargetRoot?.(context) ?? targetDir;

@@ -2,6 +2,8 @@ import { collectAndWriteKeys, writeEmptyEnvFile } from "../secrets.js";
 import { ui } from "../ui.js";
 import {
   resolveRuntimeAdapter,
+  assertRuntimeAdapterCompatibility,
+  AdapterCompatibilityError,
   UnknownRuntimeTargetError,
   UnsupportedRuntimeTargetError,
   type RuntimeAdapter,
@@ -30,6 +32,21 @@ export async function writeRuntimeEnvironment(options: {
   pluginCommands: string[];
   quick?: boolean;
 }): Promise<void> {
+  try {
+    assertRuntimeAdapterCompatibility(options.adapter, options.spec, options.registry);
+  } catch (err) {
+    if (err instanceof AdapterCompatibilityError) {
+      console.log(
+        ui.errorBox(
+          "Runtime compatibility error",
+          err.issues.map((issue) => `- ${issue.message}`).join("\n"),
+        ),
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
+
   const written = await options.adapter.write({
     spec: options.spec,
     registry: options.registry,

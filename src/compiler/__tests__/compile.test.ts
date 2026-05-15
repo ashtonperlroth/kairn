@@ -311,6 +311,21 @@ describe('compile()', () => {
     expect(messages[0]).toContain('non-existent agent');
   });
 
+  it('emits adapter capability warnings for the configured runtime target', async () => {
+    mockedLoadConfig.mockResolvedValue({
+      ...makeConfig(),
+      default_runtime: 'hermes',
+    });
+
+    const messages: string[] = [];
+    await compile('Build a TypeScript CLI', (p: CompileProgress) => {
+      if (p.status === 'warning') messages.push(p.message);
+    });
+
+    expect(messages.some((message) => message.includes('Hermes') && message.includes('agents'))).toBe(true);
+    expect(messages.some((message) => message.includes('Hermes') && message.includes('docs'))).toBe(true);
+  });
+
   it('uses concurrency 2 for claude-code-oauth auth type', async () => {
     const oauthConfig = makeConfig();
     oauthConfig.auth_type = 'claude-code-oauth';
