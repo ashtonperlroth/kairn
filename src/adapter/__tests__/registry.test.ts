@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   UnknownRuntimeTargetError,
-  UnsupportedRuntimeTargetError,
   formatRuntimeTargetList,
   normalizeRuntimeTarget,
   resolveRuntimeAdapter,
@@ -32,11 +31,11 @@ describe("runtime target registry", () => {
 
   it("resolves registered adapters through the registry", () => {
     expect(resolveRuntimeAdapter("claude").target).toBe("claude-code");
+    expect(resolveRuntimeAdapter("codex-cli").target).toBe("codex");
     expect(resolveRuntimeAdapter("hermes-agent").target).toBe("hermes");
   });
 
-  it("distinguishes unknown targets from recognized targets without adapters", () => {
+  it("rejects unknown runtime targets", () => {
     expect(() => normalizeRuntimeTarget("made-up-runtime")).toThrow(UnknownRuntimeTargetError);
-    expect(() => resolveRuntimeAdapter("codex")).toThrow(UnsupportedRuntimeTargetError);
   });
 });

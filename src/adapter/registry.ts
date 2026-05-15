@@ -1,6 +1,7 @@
 import type { EnvironmentSpec, RegistryTool, RuntimeTarget } from "../types.js";
 import { RUNTIME_TARGETS } from "../types.js";
 import { buildFileMap, writeEnvironment } from "./claude-code.js";
+import { buildCodexFileMap, writeCodexEnvironment } from "./codex.js";
 import { writeHermesEnvironment } from "./hermes-agent.js";
 
 export type EnvSetupStrategy = "project-env-file" | "external";
@@ -144,6 +145,17 @@ registerRuntimeAdapter({
   pluginInstructionStrategy: "project-cli",
   buildFileMap: ({ spec }) => buildFileMap(spec),
   write: ({ spec, targetDir }) => writeEnvironment(spec, targetDir),
+});
+
+registerRuntimeAdapter({
+  target: "codex",
+  displayName: "Codex",
+  aliases: ["codex-cli", "openai-codex"],
+  launchCommand: "codex",
+  envSetupStrategy: "external",
+  pluginInstructionStrategy: "external",
+  buildFileMap: ({ spec, registry }) => buildCodexFileMap(spec, registry),
+  write: ({ spec, registry, targetDir }) => writeCodexEnvironment(spec, registry, targetDir),
 });
 
 registerRuntimeAdapter({
