@@ -15,6 +15,7 @@ import { evolve } from '../evolve/loop.js';
 import { generateMarkdownReport, generateJsonReport } from '../evolve/report.js';
 import { generateDiff } from '../evolve/mutator.js';
 import { applyEvolution } from '../evolve/apply.js';
+import { iterationScoreSummary, numericScore, scoreType } from '../evolve/score-model.js';
 import { loadConfig } from '../config.js';
 import {
   checkEvolveBudgets,
@@ -33,6 +34,7 @@ const DEFAULT_CONFIG: EvolveConfig = {
   runsPerTask: 1,
   maxMutationsPerIteration: 3,
   pruneThreshold: 95,
+  minMeasuredTasksForBest: 1,
   maxTaskDrop: 20,
   usePrincipal: false,
   evalSampleSize: 0,
@@ -154,6 +156,7 @@ export async function loadEvolveConfigFromWorkspace(workspacePath: string): Prom
       runsPerTask: (parsed.runs_per_task as number) ?? DEFAULT_CONFIG.runsPerTask,
       maxMutationsPerIteration: (parsed.max_mutations_per_iteration as number) ?? DEFAULT_CONFIG.maxMutationsPerIteration,
       pruneThreshold: (parsed.prune_threshold as number) ?? DEFAULT_CONFIG.pruneThreshold,
+      minMeasuredTasksForBest: (parsed.min_measured_tasks_for_best as number) ?? DEFAULT_CONFIG.minMeasuredTasksForBest,
       maxTaskDrop: (parsed.max_task_drop as number) ?? DEFAULT_CONFIG.maxTaskDrop,
       usePrincipal: (parsed.use_principal as boolean) ?? DEFAULT_CONFIG.usePrincipal,
       evalSampleSize: (parsed.eval_sample_size as number) ?? DEFAULT_CONFIG.evalSampleSize,
@@ -702,6 +705,10 @@ evolveCommand
           } else {
             scoreDisplay = iter.score.toFixed(1).padStart(6) + '%';
           }
+          const scoreSummary = iterationScoreSummary(iter);
+          if (scoreSummary.estimatedTaskCount > 0) {
+            scoreDisplay = `${scoreDisplay} (${scoreSummary.measuredTaskCount}m/${scoreSummary.estimatedTaskCount}e)`;
+          }
           const mutations = iter.proposal?.mutations.length ?? 0;
           const mutStr = mutations > 0 ? mutations.toString() : '-';
           const mode = (iter.source ?? 'reactive').padEnd(9);
@@ -1026,8 +1033,10 @@ evolveCommand
         for (const taskId of [...allTaskIds].sort()) {
           const s1 = log1.taskResults[taskId];
           const s2 = log2.taskResults[taskId];
-          const score1 = s1 ? (s1.score ?? (s1.pass ? 100 : 0)) : 0;
-          const score2 = s2 ? (s2.score ?? (s2.pass ? 100 : 0)) : 0;
+          const score1 = s1 ? numericScore(s1) : 0;
+          const score2 = s2 ? numericScore(s2) : 0;
+          const estimate1 = s1 && scoreType(s1) === 'estimated' ? 'e' : ' ';
+          const estimate2 = s2 && scoreType(s2) === 'estimated' ? 'e' : ' ';
           const delta = score2 - score1;
           const deltaStr = delta > 0
             ? chalk.green(`+${delta.toFixed(0)}`)
@@ -1035,7 +1044,7 @@ evolveCommand
               ? chalk.red(delta.toFixed(0).toString())
               : chalk.dim('0');
           const name = taskId.padEnd(30);
-          console.log(`  ${name}  ${score1.toFixed(0).padStart(5)}%    ${score2.toFixed(0).padStart(5)}%    ${deltaStr}`);
+          console.log(`  ${name}  ${score1.toFixed(0).padStart(5)}%${estimate1}   ${score2.toFixed(0).padStart(5)}%${estimate2}   ${deltaStr}`);
         }
       }
     } catch (err) {

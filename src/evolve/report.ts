@@ -4,6 +4,8 @@ import { loadIterationLog } from './trace.js';
 import { diagnoseCounterfactuals } from './diagnosis.js';
 import { aggregateCostByPhase, aggregateTelemetry, formatCost, formatTokens } from './cost.js';
 import { loadExecutionLedger } from './execution-meter.js';
+import { findBestIterationWithMeasuredEvidence, iterationScoreSummary, numericScore, scoreType } from './score-model.js';
+import { loadMinMeasuredTasksForBest } from './workspace-config.js';
 import type {
   IterationLog,
   Task,
@@ -14,13 +16,6 @@ import type {
   TemplateCategory,
 } from './types.js';
 import { parse as yamlParse } from 'yaml';
-
-/**
- * Compute the numeric score from a Score object.
- */
-function numericScore(s: Score): number {
-  return s.score ?? (s.pass ? 100 : 0);
-}
 
 /**
  * Load all iteration logs from a workspace by scanning iteration directories.
@@ -182,9 +177,9 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
   }
 
   const baselineScore = iterations[0].score;
-  const bestIter = iterations.reduce((best, curr) =>
-    curr.score > best.score ? curr : best, iterations[0]);
-  const improvement = bestIter.score - baselineScore;
+  const minMeasuredTasksForBest = await loadMinMeasuredTasksForBest(workspacePath);
+  const bestIter = findBestIterationWithMeasuredEvidence(iterations, minMeasuredTasksForBest);
+  const improvement = bestIter ? bestIter.score - baselineScore : 0;
 
   const counterfactuals = diagnoseCounterfactuals(iterations, tasks);
   const leaderboard = buildLeaderboard(iterations, tasks);
@@ -210,14 +205,19 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
   lines.push(`|--------|-------|`);
   lines.push(`| Total iterations | ${iterations.length} |`);
   lines.push(`| Baseline score | ${baselineScore.toFixed(1)}% |`);
-  lines.push(`| Best score | ${bestIter.score.toFixed(1)}% |`);
-  lines.push(`| Best iteration | ${bestIter.iteration} |`);
+  lines.push(`| Best score | ${bestIter ? `${bestIter.score.toFixed(1)}%` : 'none with measured evidence'} |`);
+  const bestSummary = bestIter ? iterationScoreSummary(bestIter) : undefined;
+  lines.push(`| Best measured score | ${!bestSummary || bestSummary.measuredScore === null ? 'none' : `${bestSummary.measuredScore.toFixed(1)}%`} |`);
+  if (bestSummary && bestSummary.estimatedTaskCount > 0) {
+    lines.push(`| Best estimated score | ${bestSummary.estimatedScore === null ? 'none' : `${bestSummary.estimatedScore.toFixed(1)}%`} (${bestSummary.estimatedTaskCount} estimated tasks) |`);
+  }
+  lines.push(`| Best iteration | ${bestIter ? bestIter.iteration : 'none'} |`);
   lines.push(`| Improvement | ${improvement >= 0 ? '+' : ''}${improvement.toFixed(1)} points |`);
   lines.push(`| Usage | ${runTelemetry.usage.totalTokens === null ? runTelemetry.usage.status : `${formatTokens(runTelemetry.usage.totalTokens)} ${runTelemetry.usage.status}`} |`);
   lines.push(`| Estimated cost | ${runTelemetry.cost.estimatedUSD === null ? runTelemetry.cost.status : `${formatCost(runTelemetry.cost.estimatedUSD)} ${runTelemetry.cost.status}`} |`);
 
   // Category breakdown at best iteration
-  const categoryBreakdown = computeCategoryBreakdown(tasks, bestIter.taskResults);
+  const categoryBreakdown = bestIter ? computeCategoryBreakdown(tasks, bestIter.taskResults) : undefined;
   if (categoryBreakdown) {
     lines.push(`| Harness adherence | ${categoryBreakdown.harnessAdherence.score.toFixed(1)}% (${categoryBreakdown.harnessAdherence.count} tasks) |`);
     lines.push(`| Substantive tasks | ${categoryBreakdown.substantiveTasks.score.toFixed(1)}% (${categoryBreakdown.substantiveTasks.count} tasks) |`);
@@ -257,8 +257,9 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
   for (const iter of iterations) {
     const mutations = iter.proposal?.mutations.length ?? 0;
     const mutStr = mutations > 0 ? mutations.toString() : '-';
-    const status = iterationStatus(iter, bestIter.iteration);
+    const status = bestIter ? iterationStatus(iter, bestIter.iteration) : iterationStatus(iter, -1);
     const mode = iter.source ?? 'reactive';
+    const summary = iterationScoreSummary(iter);
     let scoreStr = `${iter.score.toFixed(1)}%`;
     if (hasVariance) {
       const stddevs = Object.values(iter.taskResults)
@@ -268,6 +269,9 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
         const avgStddev = stddevs.reduce((a, b) => a + b, 0) / stddevs.length;
         scoreStr = `${iter.score.toFixed(1)}% ±${avgStddev.toFixed(1)}`;
       }
+    }
+    if (summary.estimatedTaskCount > 0) {
+      scoreStr = `${scoreStr} (${summary.measuredTaskCount} measured, ${summary.estimatedTaskCount} estimated)`;
     }
     lines.push(`| ${iter.iteration} | ${scoreStr} | ${mutStr} | ${mode} | ${telemetryUsageText(iter)} | ${telemetryCostText(iter)} | ${status} |`);
   }
@@ -289,8 +293,10 @@ export async function generateMarkdownReport(workspacePath: string): Promise<str
         const s = entry.scores[n];
         if (s === undefined) return '-';
         const v = entry.variance?.[n];
-        if (v && v.runs > 1) return `${s.toFixed(0)}% ±${v.stddev.toFixed(1)}`;
-        return `${s.toFixed(0)}%`;
+        const score = iterations.find(iter => iter.iteration === n)?.taskResults[entry.taskId];
+        const suffix = score && scoreType(score) === 'estimated' ? ' est.' : '';
+        if (v && v.runs > 1) return `${s.toFixed(0)}%${suffix} ±${v.stddev.toFixed(1)}`;
+        return `${s.toFixed(0)}%${suffix}`;
       });
       lines.push(`| ${entry.taskId} | ${scoreCols.join(' | ')} | ${entry.bestScore.toFixed(0)}% (iter ${entry.bestIteration}) |`);
     }
@@ -349,11 +355,11 @@ export async function generateJsonReport(workspacePath: string): Promise<Evoluti
   const tasks = await loadTasks(workspacePath);
 
   const baselineScore = iterations.length > 0 ? iterations[0].score : 0;
-  const bestIterLog = iterations.length > 0
-    ? iterations.reduce((best, curr) => curr.score > best.score ? curr : best, iterations[0])
-    : undefined;
-  const bestIter = bestIterLog ?? { score: 0, iteration: 0 };
-  const improvement = bestIter.score - baselineScore;
+  const minMeasuredTasksForBest = await loadMinMeasuredTasksForBest(workspacePath);
+  const bestIterLog = findBestIterationWithMeasuredEvidence(iterations, minMeasuredTasksForBest);
+  const bestIter = bestIterLog ?? { score: 0, iteration: -1 };
+  const improvement = bestIterLog ? bestIter.score - baselineScore : 0;
+  const bestSummary = bestIterLog ? iterationScoreSummary(bestIterLog) : undefined;
 
   const counterfactuals = diagnoseCounterfactuals(iterations, tasks);
   const leaderboard = buildLeaderboard(iterations, tasks);
@@ -377,6 +383,7 @@ export async function generateJsonReport(workspacePath: string): Promise<Evoluti
       totalIterations: iterations.length,
       baselineScore,
       bestScore: bestIter.score,
+      bestMeasuredScore: bestSummary?.measuredScore ?? null,
       bestIteration: bestIter.iteration,
       improvement,
       telemetry,
@@ -395,6 +402,7 @@ export async function generateJsonReport(workspacePath: string): Promise<Evoluti
       return {
         iteration: iter.iteration,
         score: iter.score,
+        scoreSummary: iterationScoreSummary(iter),
         ...(avgStddev !== undefined ? { stddev: avgStddev } : {}),
         mutationCount: iter.proposal?.mutations.length ?? 0,
         status: iterationStatus(iter, bestIter.iteration),

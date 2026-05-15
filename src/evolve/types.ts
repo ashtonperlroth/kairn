@@ -32,6 +32,12 @@ export interface Task {
 export interface Score {
   pass: boolean;
   score?: number;
+  /** Whether the score was measured in this iteration or carried from prior evidence. */
+  scoreType?: 'measured' | 'estimated';
+  /** Why an estimated score was carried forward instead of measured. */
+  estimateReason?: ScoreEstimateReason;
+  /** Iteration number that supplied the carried estimate. */
+  estimatedFromIteration?: number;
   details?: string;
   reasoning?: string;
   breakdown?: Array<{ criterion: string; score: number; weight: number }>;
@@ -44,6 +50,8 @@ export interface Score {
   failureCategory?: 'harness' | 'task' | 'model' | 'repo' | 'unknown';
   failureReason?: string;
 }
+
+export type ScoreEstimateReason = 'pruned' | 'targeted' | 'sampled';
 
 // Hard cost budgets for evolve preflight gates, in USD.
 export interface EvolveBudgetConfig {
@@ -87,6 +95,8 @@ export interface EvolveConfig {
   runsPerTask: number;
   maxMutationsPerIteration: number;
   pruneThreshold: number;
+  /** Minimum measured task scores required before an iteration can become best/apply-ready. */
+  minMeasuredTasksForBest?: number;
   maxTaskDrop: number;
   usePrincipal: boolean;
   evalSampleSize: number;
@@ -223,6 +233,7 @@ export interface ProjectProfileSummary {
 export interface IterationLog {
   iteration: number;
   score: number;
+  scoreSummary?: IterationScoreSummary;
   taskResults: Record<string, Score>;
   telemetry?: EvolveTelemetry;
   usage?: EvolveTelemetry['usage'];
@@ -238,11 +249,21 @@ export interface IterationLog {
   source?: 'reactive' | 'architect';
 }
 
+export interface IterationScoreSummary {
+  combinedScore: number;
+  measuredScore: number | null;
+  estimatedScore: number | null;
+  measuredTaskCount: number;
+  estimatedTaskCount: number;
+  totalTaskCount: number;
+}
+
 // Final result of an evolution run
 export interface EvolveResult {
   iterations: IterationLog[];
   bestIteration: number;
   bestScore: number;
+  bestMeasuredScore?: number | null;
   baselineScore: number;
 }
 
@@ -294,6 +315,7 @@ export interface EvolutionReport {
     totalIterations: number;
     baselineScore: number;
     bestScore: number;
+    bestMeasuredScore?: number | null;
     bestIteration: number;
     improvement: number;
     telemetry?: EvolveTelemetry;
@@ -305,6 +327,7 @@ export interface EvolutionReport {
   iterations: Array<{
     iteration: number;
     score: number;
+    scoreSummary?: IterationScoreSummary;
     stddev?: number;
     mutationCount: number;
     status: string;

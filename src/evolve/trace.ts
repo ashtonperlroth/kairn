@@ -322,6 +322,7 @@ export async function writeIterationLog(
     path.join(iterDir, 'scores.json'),
     JSON.stringify({
       score: log.score,
+      ...(log.scoreSummary ? { scoreSummary: log.scoreSummary } : {}),
       taskResults: log.taskResults,
       timestamp: log.timestamp,
       ...(log.rawScore !== undefined ? { rawScore: log.rawScore } : {}),
@@ -400,6 +401,9 @@ function parseCompleteIterationLog(raw: string, iteration: number): IterationLog
   return {
     iteration,
     score: typeof parsed['score'] === 'number' ? parsed['score'] : 0,
+    ...(isRecord(parsed['scoreSummary'])
+      ? { scoreSummary: parsed['scoreSummary'] as unknown as IterationLog['scoreSummary'] }
+      : {}),
     taskResults: isRecord(parsed['taskResults'])
       ? parsed['taskResults'] as Record<string, Score>
       : {},
@@ -453,6 +457,7 @@ export async function loadIterationLog(
 
   const scoresData = JSON.parse(scoresStr) as {
     score?: number;
+    scoreSummary?: IterationLog['scoreSummary'];
     taskResults?: Record<string, Score>;
     timestamp?: string;
     telemetry?: IterationLog['telemetry'];
@@ -474,6 +479,7 @@ export async function loadIterationLog(
   return {
     iteration,
     score: scoresData.score ?? 0,
+    ...(scoresData.scoreSummary ? { scoreSummary: scoresData.scoreSummary } : {}),
     taskResults: scoresData.taskResults ?? {},
     telemetry,
     usage: scoresData.usage ?? telemetry.usage,

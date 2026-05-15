@@ -796,6 +796,114 @@ describe('evolve', () => {
     expect(result.iterations).toHaveLength(3);
     // Middle iteration aggregate includes carried-forward 100 for always-pass
     expect(result.iterations[1].score).toBe(90); // (100 + 80) / 2
+    expect(result.iterations[1].scoreSummary).toEqual({
+      combinedScore: 90,
+      measuredScore: 80,
+      estimatedScore: 100,
+      measuredTaskCount: 1,
+      estimatedTaskCount: 1,
+      totalTaskCount: 2,
+    });
+    expect(result.iterations[1].taskResults['always-pass'].scoreType).toBe('estimated');
+    expect(result.iterations[1].taskResults['always-pass'].estimateReason).toBe('pruned');
+    expect(result.iterations[1].taskResults['needs-work'].scoreType).toBe('measured');
+  });
+
+  it('does not promote an iteration to best when all current scores are estimates', async () => {
+    const workspace = await createWorkspace([0, 1, 2]);
+    const tasks = [makeTask('task-a'), makeTask('task-b')];
+    const proposal = makeProposal();
+
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: {
+        'task-a': { pass: true, score: 96 },
+        'task-b': { pass: true, score: 96 },
+      },
+      aggregate: 96,
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    mockEvaluateAll.mockImplementationOnce(async (tasksArg) => {
+      expect(tasksArg).toHaveLength(0);
+      return { results: {}, aggregate: 0 };
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: {
+        'task-a': { pass: true, score: 90 },
+        'task-b': { pass: true, score: 90 },
+      },
+      aggregate: 90,
+    });
+
+    const result = await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 3, pruneThreshold: 95 }),
+    );
+
+    expect(result.iterations[1].score).toBe(96);
+    expect(result.iterations[1].scoreSummary?.measuredTaskCount).toBe(0);
+    expect(result.bestIteration).toBe(0);
+    expect(result.bestScore).toBe(96);
+  });
+
+  it('does not roll back from an iteration with only carried estimates', async () => {
+    const workspace = await createWorkspace([0, 1, 2]);
+    const tasks = [makeTask('task-a'), makeTask('task-b')];
+    const proposal = makeProposal();
+    const events: LoopProgressEvent[] = [];
+
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: {
+        'task-a': { pass: true, score: 96 },
+        'task-b': { pass: true, score: 96 },
+      },
+      aggregate: 96,
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    mockEvaluateAll.mockImplementationOnce(async (tasksArg) => {
+      expect(tasksArg).toHaveLength(0);
+      return { results: {}, aggregate: 0 };
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: {
+        'task-a': { pass: true, score: 96 },
+        'task-b': { pass: true, score: 96 },
+      },
+      aggregate: 96,
+    });
+
+    await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 3, pruneThreshold: 95 }),
+      (event) => events.push(event),
+    );
+
+    expect(events.filter(e => e.type === 'rollback')).toHaveLength(0);
   });
 
   it('runs all tasks on first iteration even if history has 100% scores', async () => {

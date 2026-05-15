@@ -13,6 +13,14 @@ import { measureComplexity, measureComplexityFromIR, computeComplexityCost, appl
 import { parseHarness } from '../ir/parser.js';
 import { translateMutations } from '../ir/translate.js';
 import { filterTasksByAspects, mutationsToAspects } from './targeting.js';
+import {
+  iterationScoreSummary,
+  makeEstimatedScore,
+  markMeasured,
+  numericScore,
+  scoreType,
+  summarizeScores,
+} from './score-model.js';
 import { CACHE_FILENAME, PACKED_SOURCE_FILENAME } from '../analyzer/cache.js';
 import type { HarnessAspect } from './targeting.js';
 import type { HarnessIR } from '../ir/types.js';
@@ -155,6 +163,7 @@ export async function evolve(
   let bestScore = -1;
   let bestIteration = 0;
   let baselineScore = 0;
+  const minMeasuredTasksForBest = evolveConfig.minMeasuredTasksForBest ?? 1;
   const meter = runContext.meter ?? new ExecutionMeter(evolveConfig.budgets);
 
   // Thompson Sampling: initialize or load beliefs
@@ -233,9 +242,9 @@ export async function evolve(
       tasksToRun = [];
       for (const task of tasks) {
         const prevScore = prevLog.taskResults[task.id];
-        const prevValue = prevScore ? (prevScore.score ?? (prevScore.pass ? 100 : 0)) : 0;
+        const prevValue = prevScore ? numericScore(prevScore) : 0;
         if (prevValue >= threshold) {
-          carriedScores[task.id] = { pass: true, score: prevValue };
+          carriedScores[task.id] = makeEstimatedScore(prevScore, 'pruned', prevLog.iteration);
           onProgress?.({
             type: 'task-skipped',
             iteration: iter,
@@ -253,8 +262,8 @@ export async function evolve(
         const skippedByTargeting = tasksToRun.filter(t => !targetedTasks.includes(t));
         for (const task of skippedByTargeting) {
           const prev = prevLog.taskResults[task.id];
-          const prevVal = prev ? (prev.score ?? (prev.pass ? 100 : 0)) : 0;
-          carriedScores[task.id] = { pass: prevVal >= 50, score: prevVal };
+          const prevVal = prev ? numericScore(prev) : 0;
+          carriedScores[task.id] = makeEstimatedScore(prev, 'targeted', prevLog.iteration);
           onProgress?.({
             type: 'task-skipped',
             iteration: iter,
@@ -289,8 +298,8 @@ export async function evolve(
         for (const task of tasksToRun) {
           if (!sampled.has(task.id)) {
             const prev = prevLog.taskResults[task.id];
-            const prevVal = prev ? (prev.score ?? (prev.pass ? 100 : 0)) : 0;
-            carriedScores[task.id] = { pass: prevVal >= 50, score: prevVal };
+            const prevVal = prev ? numericScore(prev) : 0;
+            carriedScores[task.id] = makeEstimatedScore(prev, 'sampled', prevLog.iteration);
             onProgress?.({
               type: 'task-skipped',
               iteration: iter,
@@ -316,14 +325,13 @@ export async function evolve(
       runContext.taskRunLimiter,
     );
 
-    // Merge carried-forward scores with evaluated results
-    const results = { ...carriedScores, ...evalResults };
-    const allScores = Object.values(results);
-    const total = allScores.reduce(
-      (sum, s) => sum + (s.score ?? (s.pass ? 100 : 0)),
-      0,
+    // Merge carried-forward estimates with freshly measured results.
+    const measuredResults = Object.fromEntries(
+      Object.entries(evalResults).map(([taskId, score]) => [taskId, markMeasured(score)]),
     );
-    const rawAggregate = allScores.length > 0 ? total / allScores.length : 0;
+    const results = { ...carriedScores, ...measuredResults };
+    const scoreSummary = summarizeScores(results);
+    const rawAggregate = scoreSummary.combinedScore;
 
     // KL Regularization: penalize complexity drift
     let aggregate = rawAggregate;
@@ -351,7 +359,7 @@ export async function evolve(
     if (useThompson) {
       const scoreMap: Record<string, number> = {};
       for (const [taskId, score] of Object.entries(evalResults)) {
-        scoreMap[taskId] = score.score ?? (score.pass ? 100 : 0);
+        scoreMap[taskId] = numericScore(score);
       }
       beliefs = updateBeliefs(beliefs, scoreMap);
       await saveBeliefs(workspacePath, beliefs);
@@ -372,8 +380,10 @@ export async function evolve(
       }
     }
 
+    const measuredEvidenceReady = scoreSummary.measuredTaskCount >= minMeasuredTasksForBest;
+
     // 2. ROLLBACK CHECK (aggregate regression OR per-task drop exceeding maxTaskDrop)
-    let shouldRollback = iter > 0 && aggregate < bestScore;
+    let shouldRollback = iter > 0 && measuredEvidenceReady && aggregate < bestScore;
     let rollbackMessage = shouldRollback
       ? `Regression: ${aggregate.toFixed(1)}% < ${bestScore.toFixed(1)}%. Rolling back.`
       : '';
@@ -382,9 +392,11 @@ export async function evolve(
     const bestLog = history.find(h => h.iteration === bestIteration);
     if (iter > 0 && !shouldRollback && bestLog) {
       for (const [taskId, score] of Object.entries(results)) {
-        const currValue = score.score ?? (score.pass ? 100 : 0);
+        if (scoreType(score) === 'estimated') continue;
+        const currValue = numericScore(score);
         const bestTaskScore = bestLog.taskResults[taskId];
-        const bestValue = bestTaskScore ? (bestTaskScore.score ?? (bestTaskScore.pass ? 100 : 0)) : currValue;
+        if (bestTaskScore && scoreType(bestTaskScore) === 'estimated') continue;
+        const bestValue = bestTaskScore ? numericScore(bestTaskScore) : currValue;
         const drop = bestValue - currValue;
         if (drop > evolveConfig.maxTaskDrop) {
           shouldRollback = true;
@@ -413,6 +425,7 @@ export async function evolve(
       const rollbackLog: IterationLog = {
         iteration: iter,
         score: aggregate,
+        scoreSummary,
         taskResults: results,
         proposal: null,
         diffPatch: null,
@@ -485,15 +498,18 @@ export async function evolve(
     }
 
     // 3. UPDATE BEST
-    bestScore = aggregate;
-    bestIteration = iter;
+    if (measuredEvidenceReady) {
+      bestScore = aggregate;
+      bestIteration = iter;
+    }
 
     // 4. PERFECT SCORE CHECK
-    if (aggregate >= 100) {
+    if (aggregate >= 100 && measuredEvidenceReady) {
       onProgress?.({ type: 'perfect-score', iteration: iter, score: aggregate });
       const perfectLog: IterationLog = {
         iteration: iter,
         score: aggregate,
+        scoreSummary,
         taskResults: results,
         proposal: null,
         diffPatch: null,
@@ -513,6 +529,7 @@ export async function evolve(
       const finalLog: IterationLog = {
         iteration: iter,
         score: aggregate,
+        scoreSummary,
         taskResults: results,
         proposal: null,
         diffPatch: null,
@@ -580,6 +597,7 @@ export async function evolve(
         const skipLog: IterationLog = {
           iteration: iter,
           score: aggregate,
+          scoreSummary,
           taskResults: results,
           proposal: null,
           diffPatch: null,
@@ -613,6 +631,7 @@ export async function evolve(
         const rejectLog: IterationLog = {
           iteration: iter,
           score: aggregate,
+          scoreSummary,
           taskResults: results,
           proposal: architectProposal,
           diffPatch: null,
@@ -659,6 +678,7 @@ export async function evolve(
       const architectLog: IterationLog = {
         iteration: iter,
         score: stagingScore >= bestScore ? stagingScore : aggregate,
+        scoreSummary: stagingScore >= bestScore ? summarizeScores(stagingResults) : scoreSummary,
         taskResults: stagingScore >= bestScore ? stagingResults : results,
         proposal: architectProposal,
         diffPatch: null,
@@ -721,6 +741,7 @@ export async function evolve(
       const skipLog: IterationLog = {
         iteration: iter,
         score: aggregate,
+        scoreSummary,
         taskResults: results,
         proposal: null,
         diffPatch: null,
@@ -773,6 +794,7 @@ export async function evolve(
     const iterLog: IterationLog = {
       iteration: iter,
       score: aggregate,
+      scoreSummary,
       taskResults: results,
       proposal,
       diffPatch,
@@ -830,10 +852,14 @@ export async function evolve(
       );
       onProgress?.({ type: 'iteration-scored', iteration: principalIterNum, score: principalAggregate });
 
+      const measuredPrincipalResults = Object.fromEntries(
+        Object.entries(principalResults).map(([taskId, score]) => [taskId, markMeasured(score)]),
+      );
       const principalLog: IterationLog = {
         iteration: principalIterNum,
         score: principalAggregate,
-        taskResults: principalResults,
+        scoreSummary: summarizeScores(measuredPrincipalResults),
+        taskResults: measuredPrincipalResults,
         proposal: principalProposal,
         diffPatch: mutResult.diffPatch,
         timestamp: new Date().toISOString(),
@@ -885,6 +911,9 @@ export async function evolve(
     iterations: history,
     bestIteration,
     bestScore,
+    bestMeasuredScore: iterationScoreSummary(
+      history.find(h => h.iteration === bestIteration) ?? history[0],
+    ).measuredScore,
     baselineScore,
   };
 }

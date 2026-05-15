@@ -43,6 +43,7 @@ export async function createEvolveWorkspace(
     runs_per_task: config.runsPerTask,
     max_mutations_per_iteration: config.maxMutationsPerIteration,
     prune_threshold: config.pruneThreshold,
+    min_measured_tasks_for_best: config.minMeasuredTasksForBest ?? 1,
     max_task_drop: config.maxTaskDrop,
     use_principal: config.usePrincipal,
     eval_sample_size: config.evalSampleSize,
