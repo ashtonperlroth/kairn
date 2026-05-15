@@ -1,5 +1,6 @@
 import type { EnvironmentSpec, RegistryTool } from "../types.js";
 import { applyAutonomyLevel } from "../autonomy.js";
+import type { RuntimeAdapter } from "./registry.js";
 import {
   createRenderedHarness,
   renderedHarnessContentMap,
@@ -285,6 +286,18 @@ export async function writeEnvironment(
 ): Promise<string[]> {
   return writeRenderedHarness(buildRenderedHarness(spec), targetDir);
 }
+
+export const claudeCodeAdapter: RuntimeAdapter = {
+  target: "claude-code",
+  displayName: "Claude Code",
+  aliases: ["claude", "claude_code", "claudecode", "cc"],
+  launchCommand: "claude",
+  envSetupStrategy: "project-env-file",
+  pluginInstructionStrategy: "project-cli",
+  render: ({ spec }) => buildRenderedHarness(spec),
+  buildFileMap: ({ spec }) => buildFileMap(spec),
+  write: ({ spec, targetDir }) => writeEnvironment(spec, targetDir),
+};
 
 export interface EnvSetupInfo {
   toolName: string;
