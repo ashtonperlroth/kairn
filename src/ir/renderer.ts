@@ -7,8 +7,13 @@
  * All file I/O uses `fs.promises`. Directories are created on demand.
  */
 
-import fs from "fs/promises";
-import path from "path";
+import {
+  createRenderedHarness,
+  renderedHarnessContentMap,
+  writeRenderedHarness,
+  type RenderedHarness,
+  type RenderedHarnessEntry,
+} from "../rendered-harness.js";
 import type {
   HarnessIR,
   HarnessMeta,
@@ -359,55 +364,94 @@ function settingsHasContent(settings: SettingsIR): boolean {
  * @returns Map of relative file path to file content
  */
 export function renderHarness(ir: HarnessIR): Map<string, string> {
-  const files = new Map<string, string>();
+  return renderedHarnessContentMap(renderRenderedHarness(ir));
+}
+
+/**
+ * Render a complete HarnessIR into the shared deterministic rendered contract.
+ */
+export function renderRenderedHarness(ir: HarnessIR): RenderedHarness {
+  const files: RenderedHarnessEntry[] = [];
 
   // CLAUDE.md — only if sections exist or meta.name is set
   if (ir.sections.length > 0 || ir.meta.name) {
-    files.set("CLAUDE.md", renderClaudeMd(ir.meta, ir.sections));
+    files.push({
+      path: "CLAUDE.md",
+      content: renderClaudeMd(ir.meta, ir.sections),
+      source: "claude_md",
+    });
   }
 
   // settings.json — only if settings has content beyond empty defaults
   if (settingsHasContent(ir.settings)) {
-    files.set("settings.json", renderSettings(ir.settings));
+    files.push({
+      path: "settings.json",
+      content: renderSettings(ir.settings),
+      source: "settings",
+    });
   }
 
   // Commands
   for (const cmd of ir.commands) {
-    files.set(`commands/${cmd.name}.md`, cmd.content);
+    files.push({
+      path: `commands/${cmd.name}.md`,
+      content: cmd.content,
+      source: "commands",
+    });
   }
 
   // Rules
   for (const rule of ir.rules) {
-    files.set(`rules/${rule.name}.md`, renderRuleWithFrontmatter(rule));
+    files.push({
+      path: `rules/${rule.name}.md`,
+      content: renderRuleWithFrontmatter(rule),
+      source: "rules",
+    });
   }
 
   // Agents
   for (const agent of ir.agents) {
-    files.set(`agents/${agent.name}.md`, renderAgentWithFrontmatter(agent));
+    files.push({
+      path: `agents/${agent.name}.md`,
+      content: renderAgentWithFrontmatter(agent),
+      source: "agents",
+    });
   }
 
   // Skills
   for (const skill of ir.skills) {
-    files.set(`skills/${skill.name}.md`, skill.content);
+    files.push({
+      path: `skills/${skill.name}.md`,
+      content: skill.content,
+      source: "skills",
+    });
   }
 
   // Docs
   for (const doc of ir.docs) {
-    files.set(`docs/${doc.name}.md`, doc.content);
+    files.push({
+      path: `docs/${doc.name}.md`,
+      content: doc.content,
+      source: "docs",
+    });
   }
 
   // Hooks
   for (const hook of ir.hooks) {
-    files.set(`hooks/${hook.name}.mjs`, hook.content);
+    files.push({
+      path: `hooks/${hook.name}.mjs`,
+      content: hook.content,
+      source: "hooks",
+    });
   }
 
   // .mcp.json — only if servers exist
   const mcpContent = renderMcpConfig(ir.mcpServers);
   if (mcpContent) {
-    files.set(".mcp.json", mcpContent);
+    files.push({ path: ".mcp.json", content: mcpContent, source: "mcp" });
   }
 
-  return files;
+  return createRenderedHarness(files, { target: "claude-code", source: "harness-ir" });
 }
 
 // ---------------------------------------------------------------------------
@@ -428,15 +472,5 @@ export async function renderHarnessToDir(
   ir: HarnessIR,
   targetDir: string,
 ): Promise<string[]> {
-  const fileMap = renderHarness(ir);
-  const writtenPaths: string[] = [];
-
-  for (const [relativePath, content] of fileMap) {
-    const fullPath = path.join(targetDir, relativePath);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, content, "utf-8");
-    writtenPaths.push(relativePath);
-  }
-
-  return writtenPaths;
+  return writeRenderedHarness(renderRenderedHarness(ir), targetDir);
 }

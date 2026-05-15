@@ -1,12 +1,11 @@
-import fs from "fs/promises";
-import path from "path";
 import os from "os";
 import type { EnvironmentSpec, RegistryTool } from "../types.js";
-
-async function writeFile(filePath: string, content: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, content, "utf-8");
-}
+import {
+  createRenderedHarness,
+  writeRenderedHarness,
+  type RenderedHarness,
+  type RenderedHarnessEntry,
+} from "../rendered-harness.js";
 
 function toYaml(obj: unknown, indent: number = 0): string {
   const pad = "  ".repeat(indent);
@@ -124,43 +123,60 @@ export async function writeHermesEnvironment(
   spec: EnvironmentSpec,
   registry: RegistryTool[]
 ): Promise<string[]> {
-  const hermesDir = path.join(os.homedir(), ".hermes");
-  const written: string[] = [];
+  return writeRenderedHarness(
+    buildHermesRenderedHarness(spec, registry),
+    os.homedir(),
+  );
+}
+
+export function buildHermesRenderedHarness(
+  spec: EnvironmentSpec,
+  registry: RegistryTool[],
+): RenderedHarness {
+  const files: RenderedHarnessEntry[] = [];
 
   // 1. config.yaml
   const configYaml = buildMcpServersYaml(spec, registry);
   if (configYaml) {
-    const configPath = path.join(hermesDir, "config.yaml");
-    await writeFile(configPath, configYaml);
-    written.push(".hermes/config.yaml");
+    files.push({
+      path: ".hermes/config.yaml",
+      content: configYaml,
+      source: "mcp",
+    });
   }
 
   // 2. Skills from commands
   if (spec.harness.commands) {
     for (const [name, content] of Object.entries(spec.harness.commands)) {
-      const skillPath = path.join(hermesDir, "skills", `${name}.md`);
-      await writeFile(skillPath, content);
-      written.push(`.hermes/skills/${name}.md`);
+      files.push({
+        path: `.hermes/skills/${name}.md`,
+        content,
+        source: "commands",
+      });
     }
   }
 
   // 3. Skills from skills
   if (spec.harness.skills) {
     for (const [name, content] of Object.entries(spec.harness.skills)) {
-      const skillPath = path.join(hermesDir, "skills", `${name}.md`);
-      await writeFile(skillPath, content);
-      written.push(`.hermes/skills/${name}.md`);
+      files.push({
+        path: `.hermes/skills/${name}.md`,
+        content,
+        source: "skills",
+      });
     }
   }
 
   // 4. Skills from rules (prefixed with "rule-")
   if (spec.harness.rules) {
     for (const [name, content] of Object.entries(spec.harness.rules)) {
-      const skillPath = path.join(hermesDir, "skills", `rule-${name}.md`);
-      await writeFile(skillPath, content);
-      written.push(`.hermes/skills/rule-${name}.md`);
+      files.push({
+        path: `.hermes/skills/rule-${name}.md`,
+        content,
+        source: "rules",
+      });
     }
   }
 
-  return written;
+  return createRenderedHarness(files, { target: "hermes", source: "environment-spec" });
 }

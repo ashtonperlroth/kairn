@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import {
   renderHarness,
+  renderRenderedHarness,
   renderHarnessToDir,
   renderClaudeMd,
   renderSettings,
@@ -10,6 +11,7 @@ import {
   renderRuleWithFrontmatter,
   renderAgentWithFrontmatter,
 } from "../renderer.js";
+import { InvalidRenderedHarnessPathError } from "../../rendered-harness.js";
 import {
   createEmptyIR,
   createSection,
@@ -827,5 +829,49 @@ describe("renderHarnessToDir", () => {
     const ir = createEmptyIR();
     const written = await renderHarnessToDir(ir, tempDir);
     expect(written).toEqual([]);
+  });
+
+  it("rejects path traversal before writing files", async () => {
+    const ir = createEmptyIR();
+    ir.commands = [
+      { name: "../../escape", description: "Escape", content: "escaped" },
+    ];
+
+    await expect(renderHarnessToDir(ir, tempDir)).rejects.toThrow(
+      InvalidRenderedHarnessPathError,
+    );
+
+    await expect(
+      fs.readFile(path.join(tempDir, "..", "escape.md"), "utf-8"),
+    ).rejects.toThrow();
+  });
+});
+
+describe("renderRenderedHarness", () => {
+  it("returns the shared rendered contract with sorted metadata", () => {
+    const ir = createEmptyIR();
+    ir.rules = [
+      { name: "security", content: "No secrets." },
+    ];
+    ir.commands = [
+      { name: "build", description: "Build", content: "npm run build" },
+    ];
+
+    const rendered = renderRenderedHarness(ir);
+
+    expect(rendered.metadata).toMatchObject({
+      schemaVersion: 1,
+      target: "claude-code",
+      source: "harness-ir",
+    });
+    expect([...rendered.files.keys()]).toEqual([
+      "commands/build.md",
+      "rules/security.md",
+    ]);
+    expect(rendered.files.get("commands/build.md")?.metadata).toMatchObject({
+      byteLength: "npm run build".length,
+      lineCount: 1,
+      source: "commands",
+    });
   });
 });

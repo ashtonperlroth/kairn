@@ -55,15 +55,15 @@ async function generateDiff(
   adapter: RuntimeAdapter,
   registry: RegistryTool[],
 ): Promise<FileDiff[]> {
-  if (!adapter.buildFileMap) {
-    return [];
-  }
-
-  const fileMap = adapter.buildFileMap({ spec, registry, targetDir });
+  const context = { spec, registry, targetDir };
+  const rendered = adapter.render(context);
+  const renderRoot = adapter.resolveTargetRoot?.(context) ?? targetDir;
   const results: FileDiff[] = [];
 
-  for (const [relativePath, newContent] of fileMap) {
-    const absolutePath = path.join(targetDir, relativePath);
+  for (const file of rendered.files.values()) {
+    const relativePath = file.path;
+    const newContent = file.content;
+    const absolutePath = path.join(renderRoot, relativePath);
     let oldContent: string | null = null;
     try {
       oldContent = await fs.readFile(absolutePath, "utf-8");
