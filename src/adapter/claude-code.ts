@@ -1,7 +1,12 @@
-import fs from "fs/promises";
-import path from "path";
 import type { EnvironmentSpec, RegistryTool } from "../types.js";
 import { applyAutonomyLevel } from "../autonomy.js";
+import {
+  createRenderedHarness,
+  renderedHarnessContentMap,
+  writeRenderedHarness,
+  type RenderedHarness,
+  type RenderedHarnessEntry,
+} from "../rendered-harness.js";
 
 const STATUS_LINE = {
   command:
@@ -144,11 +149,6 @@ function resolveSettings(
   return base;
 }
 
-async function writeFile(filePath: string, content: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, content, "utf-8");
-}
-
 /**
  * Detect docs that are just template placeholders with no real content.
  *
@@ -178,54 +178,83 @@ function isPlaceholderDoc(content: string): boolean {
   return false;
 }
 
-export function buildFileMap(
+export function buildRenderedHarness(
   spec: EnvironmentSpec,
-): Map<string, string> {
+): RenderedHarness {
   // Apply autonomy-level content before building file map
   applyAutonomyLevel(spec);
 
-  const files = new Map<string, string>();
+  const files: RenderedHarnessEntry[] = [];
 
   if (spec.harness.claude_md) {
-    files.set(".claude/CLAUDE.md", spec.harness.claude_md);
+    files.push({
+      path: ".claude/CLAUDE.md",
+      content: spec.harness.claude_md,
+      source: "claude_md",
+    });
   }
   const resolvedSettings = resolveSettings(spec);
   if (resolvedSettings) {
-    files.set(".claude/settings.json", JSON.stringify(resolvedSettings, null, 2));
+    files.push({
+      path: ".claude/settings.json",
+      content: JSON.stringify(resolvedSettings, null, 2),
+      source: "settings",
+    });
   }
   if (
     spec.harness.mcp_config &&
     Object.keys(spec.harness.mcp_config).length > 0
   ) {
-    files.set(
-      ".mcp.json",
-      JSON.stringify({ mcpServers: spec.harness.mcp_config }, null, 2)
-    );
+    files.push({
+      path: ".mcp.json",
+      content: JSON.stringify({ mcpServers: spec.harness.mcp_config }, null, 2),
+      source: "mcp",
+    });
   }
   if (spec.harness.commands) {
     for (const [name, content] of Object.entries(spec.harness.commands)) {
-      files.set(`.claude/commands/${name}.md`, content);
+      files.push({
+        path: `.claude/commands/${name}.md`,
+        content,
+        source: "commands",
+      });
     }
   }
   if (spec.harness.rules) {
     for (const [name, content] of Object.entries(spec.harness.rules)) {
-      files.set(`.claude/rules/${name}.md`, content);
+      files.push({
+        path: `.claude/rules/${name}.md`,
+        content,
+        source: "rules",
+      });
     }
   }
   if (spec.harness.skills) {
     for (const [skillPath, content] of Object.entries(spec.harness.skills)) {
-      files.set(`.claude/skills/${skillPath}.md`, content);
+      files.push({
+        path: `.claude/skills/${skillPath}.md`,
+        content,
+        source: "skills",
+      });
     }
   }
   if (spec.harness.agents) {
     for (const [name, content] of Object.entries(spec.harness.agents)) {
-      files.set(`.claude/agents/${name}.md`, content);
+      files.push({
+        path: `.claude/agents/${name}.md`,
+        content,
+        source: "agents",
+      });
     }
   }
   if (spec.harness.docs) {
     for (const [name, content] of Object.entries(spec.harness.docs)) {
       if (!isPlaceholderDoc(content)) {
-        files.set(`.claude/docs/${name}.md`, content);
+        files.push({
+          path: `.claude/docs/${name}.md`,
+          content,
+          source: "docs",
+        });
       }
     }
   }
@@ -234,105 +263,27 @@ export function buildFileMap(
 
   // Persist-router hook for L3+ code projects
   if (isCodeProject(spec) && (spec.autonomy_level ?? 1) >= 3) {
-    files.set('.claude/hooks/persist-router.mjs', PERSIST_ROUTER_TEMPLATE);
+    files.push({
+      path: ".claude/hooks/persist-router.mjs",
+      content: PERSIST_ROUTER_TEMPLATE,
+      source: "hooks",
+    });
   }
 
-  return files;
+  return createRenderedHarness(files, { target: "claude-code", source: "environment-spec" });
+}
+
+export function buildFileMap(
+  spec: EnvironmentSpec,
+): Map<string, string> {
+  return renderedHarnessContentMap(buildRenderedHarness(spec));
 }
 
 export async function writeEnvironment(
   spec: EnvironmentSpec,
   targetDir: string,
 ): Promise<string[]> {
-  // Apply autonomy-level content before writing
-  applyAutonomyLevel(spec);
-
-  const claudeDir = path.join(targetDir, ".claude");
-  const written: string[] = [];
-
-  // 1. CLAUDE.md
-  if (spec.harness.claude_md) {
-    const p = path.join(claudeDir, "CLAUDE.md");
-    await writeFile(p, spec.harness.claude_md);
-    written.push(".claude/CLAUDE.md");
-  }
-
-  // 2. settings.json
-  const resolvedSettings = resolveSettings(spec);
-  if (resolvedSettings) {
-    const p = path.join(claudeDir, "settings.json");
-    await writeFile(p, JSON.stringify(resolvedSettings, null, 2));
-    written.push(".claude/settings.json");
-  }
-
-  // 3. .mcp.json (project-scoped, goes in project root)
-  if (
-    spec.harness.mcp_config &&
-    Object.keys(spec.harness.mcp_config).length > 0
-  ) {
-    const p = path.join(targetDir, ".mcp.json");
-    const mcpContent = { mcpServers: spec.harness.mcp_config };
-    await writeFile(p, JSON.stringify(mcpContent, null, 2));
-    written.push(".mcp.json");
-  }
-
-  // 4. Commands
-  if (spec.harness.commands) {
-    for (const [name, content] of Object.entries(spec.harness.commands)) {
-      const p = path.join(claudeDir, "commands", `${name}.md`);
-      await writeFile(p, content);
-      written.push(`.claude/commands/${name}.md`);
-    }
-  }
-
-  // 5. Rules
-  if (spec.harness.rules) {
-    for (const [name, content] of Object.entries(spec.harness.rules)) {
-      const p = path.join(claudeDir, "rules", `${name}.md`);
-      await writeFile(p, content);
-      written.push(`.claude/rules/${name}.md`);
-    }
-  }
-
-  // 6. Skills
-  if (spec.harness.skills) {
-    for (const [skillPath, content] of Object.entries(spec.harness.skills)) {
-      const p = path.join(claudeDir, "skills", `${skillPath}.md`);
-      await writeFile(p, content);
-      written.push(`.claude/skills/${skillPath}.md`);
-    }
-  }
-
-  // 7. Agents
-  if (spec.harness.agents) {
-    for (const [name, content] of Object.entries(spec.harness.agents)) {
-      const p = path.join(claudeDir, "agents", `${name}.md`);
-      await writeFile(p, content);
-      written.push(`.claude/agents/${name}.md`);
-    }
-  }
-
-  // 8. Docs (skip placeholder-only docs — they waste context)
-  if (spec.harness.docs) {
-    for (const [name, content] of Object.entries(spec.harness.docs)) {
-      if (!isPlaceholderDoc(content)) {
-        const p = path.join(claudeDir, "docs", `${name}.md`);
-        await writeFile(p, content);
-        written.push(`.claude/docs/${name}.md`);
-      }
-    }
-  }
-
-  // Intent routing hooks removed in v2.12 — no intent-router.mjs, intent-learner.mjs, or intent-log.jsonl
-
-  // 9. Persist-router hook for L3+ code projects
-  if (isCodeProject(spec) && (spec.autonomy_level ?? 1) >= 3) {
-    const p = path.join(claudeDir, "hooks", "persist-router.mjs");
-    await writeFile(p, PERSIST_ROUTER_TEMPLATE);
-    written.push('.claude/hooks/persist-router.mjs');
-  }
-
-  return written;
+  return writeRenderedHarness(buildRenderedHarness(spec), targetDir);
 }
 
 export interface EnvSetupInfo {
