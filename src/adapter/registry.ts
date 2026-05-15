@@ -2,6 +2,7 @@ import os from "os";
 import type { EnvironmentSpec, RegistryTool, RuntimeTarget } from "../types.js";
 import { RUNTIME_TARGETS } from "../types.js";
 import { buildFileMap, buildRenderedHarness, writeEnvironment } from "./claude-code.js";
+import { buildCodexFileMap, buildCodexRenderedHarness, writeCodexEnvironment } from "./codex.js";
 import { buildHermesRenderedHarness, writeHermesEnvironment } from "./hermes-agent.js";
 import type { RenderedHarness } from "../rendered-harness.js";
 
@@ -149,6 +150,18 @@ registerRuntimeAdapter({
   render: ({ spec }) => buildRenderedHarness(spec),
   buildFileMap: ({ spec }) => buildFileMap(spec),
   write: ({ spec, targetDir }) => writeEnvironment(spec, targetDir),
+});
+
+registerRuntimeAdapter({
+  target: "codex",
+  displayName: "Codex",
+  aliases: ["codex-cli", "openai-codex"],
+  launchCommand: "codex",
+  envSetupStrategy: "external",
+  pluginInstructionStrategy: "external",
+  render: ({ spec, registry }) => buildCodexRenderedHarness(spec, registry),
+  buildFileMap: ({ spec, registry }) => buildCodexFileMap(spec, registry),
+  write: ({ spec, registry, targetDir }) => writeCodexEnvironment(spec, registry, targetDir),
 });
 
 registerRuntimeAdapter({
