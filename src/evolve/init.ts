@@ -40,6 +40,18 @@ export async function createEvolveWorkspace(
     scorer: config.scorer,
     max_iterations: config.maxIterations,
     parallel_tasks: config.parallelTasks,
+    runs_per_task: config.runsPerTask,
+    max_mutations_per_iteration: config.maxMutationsPerIteration,
+    prune_threshold: config.pruneThreshold,
+    max_task_drop: config.maxTaskDrop,
+    use_principal: config.usePrincipal,
+    eval_sample_size: config.evalSampleSize,
+    sampling_strategy: config.samplingStrategy,
+    kl_lambda: config.klLambda,
+    pbt_branches: config.pbtBranches,
+    architect_every: config.architectEvery,
+    schedule: config.schedule,
+    architect_model: config.architectModel,
     ...(Object.keys(definedBudgets).length > 0 ? { budget: definedBudgets } : {}),
   };
   await fs.writeFile(
