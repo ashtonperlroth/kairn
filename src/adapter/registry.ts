@@ -3,6 +3,7 @@ import type { EnvironmentSpec, RegistryTool, RuntimeTarget } from "../types.js";
 import { RUNTIME_TARGETS } from "../types.js";
 import { buildFileMap, buildRenderedHarness, writeEnvironment } from "./claude-code.js";
 import { buildCodexFileMap, buildCodexRenderedHarness, writeCodexEnvironment } from "./codex.js";
+import { buildGenericFileMap, buildGenericRenderedHarness, writeGenericEnvironment } from "./generic.js";
 import { buildHermesRenderedHarness, writeHermesEnvironment } from "./hermes-agent.js";
 import type { RenderedHarness } from "../rendered-harness.js";
 
@@ -139,6 +140,18 @@ export function resolveRuntimeAdapter(input: string | undefined): RuntimeAdapter
 
   return adapter;
 }
+
+registerRuntimeAdapter({
+  target: "generic",
+  displayName: "Generic",
+  aliases: ["default", "portable", "harness"],
+  launchCommand: "agent-runtime",
+  envSetupStrategy: "external",
+  pluginInstructionStrategy: "external",
+  render: ({ spec, registry }) => buildGenericRenderedHarness(spec, registry),
+  buildFileMap: ({ spec, registry }) => buildGenericFileMap(spec, registry),
+  write: ({ spec, registry, targetDir }) => writeGenericEnvironment(spec, registry, targetDir),
+});
 
 registerRuntimeAdapter({
   target: "claude-code",
