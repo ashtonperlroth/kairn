@@ -1,6 +1,11 @@
-import fs from "fs/promises";
-import path from "path";
 import { createHarnessProgramFromIR, type HarnessProgram } from "../ir/program.js";
+import {
+  createRenderedHarness,
+  renderedHarnessContentMap,
+  writeRenderedHarness,
+  type RenderedHarness,
+  type RenderedHarnessEntry,
+} from "../rendered-harness.js";
 import type { EnvironmentSpec, RegistryTool } from "../types.js";
 
 const DEFAULT_SANDBOX_MODE = "workspace-write";
@@ -416,33 +421,55 @@ export function buildCodexFileMap(
   spec: EnvironmentSpec,
   registry: RegistryTool[] = [],
 ): Map<string, string> {
-  const program = resolveProgram(spec, registry);
-  const files = new Map<string, string>();
+  return renderedHarnessContentMap(buildCodexRenderedHarness(spec, registry));
+}
 
-  files.set("AGENTS.md", renderAgentsMd(program));
-  files.set(".codex/config.toml", renderCodexConfig(program));
+export function buildCodexRenderedHarness(
+  spec: EnvironmentSpec,
+  registry: RegistryTool[] = [],
+): RenderedHarness {
+  const program = resolveProgram(spec, registry);
+  const files: RenderedHarnessEntry[] = [];
+
+  files.push({
+    path: "AGENTS.md",
+    content: renderAgentsMd(program),
+    source: "instructions",
+  });
+  files.push({
+    path: ".codex/config.toml",
+    content: renderCodexConfig(program),
+    source: "config",
+  });
 
   for (const skill of program.skills) {
     const skillId = sanitizeIdentifier(skill.name, "skill");
-    files.set(`.agents/skills/${skillId}/SKILL.md`, renderSkill(skill));
+    files.push({
+      path: `.agents/skills/${skillId}/SKILL.md`,
+      content: renderSkill(skill),
+      source: "skills",
+    });
   }
 
   for (const agent of program.agents) {
     const agentId = sanitizeIdentifier(agent.name, "agent");
-    files.set(`.codex/agents/${agentId}.toml`, renderAgent(agent));
+    files.push({
+      path: `.codex/agents/${agentId}.toml`,
+      content: renderAgent(agent),
+      source: "agents",
+    });
   }
 
   const mcpJson = renderMcpJson(program);
   if (mcpJson) {
-    files.set(".mcp.json", mcpJson);
+    files.push({
+      path: ".mcp.json",
+      content: mcpJson,
+      source: "mcp",
+    });
   }
 
-  return files;
-}
-
-async function writeFile(filePath: string, content: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, content, "utf-8");
+  return createRenderedHarness(files, { target: "codex", source: "environment-spec" });
 }
 
 export async function writeCodexEnvironment(
@@ -450,13 +477,5 @@ export async function writeCodexEnvironment(
   registry: RegistryTool[],
   targetDir: string,
 ): Promise<string[]> {
-  const files = buildCodexFileMap(spec, registry);
-  const written: string[] = [];
-
-  for (const [relativePath, content] of files) {
-    await writeFile(path.join(targetDir, relativePath), content);
-    written.push(relativePath);
-  }
-
-  return written;
+  return writeRenderedHarness(buildCodexRenderedHarness(spec, registry), targetDir);
 }

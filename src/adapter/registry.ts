@@ -1,8 +1,10 @@
+import os from "os";
 import type { EnvironmentSpec, RegistryTool, RuntimeTarget } from "../types.js";
 import { RUNTIME_TARGETS } from "../types.js";
-import { buildFileMap, writeEnvironment } from "./claude-code.js";
-import { buildCodexFileMap, writeCodexEnvironment } from "./codex.js";
-import { writeHermesEnvironment } from "./hermes-agent.js";
+import { buildFileMap, buildRenderedHarness, writeEnvironment } from "./claude-code.js";
+import { buildCodexFileMap, buildCodexRenderedHarness, writeCodexEnvironment } from "./codex.js";
+import { buildHermesRenderedHarness, writeHermesEnvironment } from "./hermes-agent.js";
+import type { RenderedHarness } from "../rendered-harness.js";
 
 export type EnvSetupStrategy = "project-env-file" | "external";
 export type PluginInstructionStrategy = "project-cli" | "external";
@@ -20,6 +22,8 @@ export interface RuntimeAdapter {
   launchCommand: string;
   envSetupStrategy: EnvSetupStrategy;
   pluginInstructionStrategy: PluginInstructionStrategy;
+  render: (context: RuntimeWriteContext) => RenderedHarness;
+  resolveTargetRoot?: (context: RuntimeWriteContext) => string;
   buildFileMap?: (context: RuntimeWriteContext) => Map<string, string>;
   write: (context: RuntimeWriteContext) => Promise<string[]>;
 }
@@ -143,6 +147,7 @@ registerRuntimeAdapter({
   launchCommand: "claude",
   envSetupStrategy: "project-env-file",
   pluginInstructionStrategy: "project-cli",
+  render: ({ spec }) => buildRenderedHarness(spec),
   buildFileMap: ({ spec }) => buildFileMap(spec),
   write: ({ spec, targetDir }) => writeEnvironment(spec, targetDir),
 });
@@ -154,6 +159,7 @@ registerRuntimeAdapter({
   launchCommand: "codex",
   envSetupStrategy: "external",
   pluginInstructionStrategy: "external",
+  render: ({ spec, registry }) => buildCodexRenderedHarness(spec, registry),
   buildFileMap: ({ spec, registry }) => buildCodexFileMap(spec, registry),
   write: ({ spec, registry, targetDir }) => writeCodexEnvironment(spec, registry, targetDir),
 });
@@ -165,5 +171,7 @@ registerRuntimeAdapter({
   launchCommand: "hermes",
   envSetupStrategy: "external",
   pluginInstructionStrategy: "external",
+  render: ({ spec, registry }) => buildHermesRenderedHarness(spec, registry),
+  resolveTargetRoot: () => os.homedir(),
   write: ({ spec, registry }) => writeHermesEnvironment(spec, registry),
 });

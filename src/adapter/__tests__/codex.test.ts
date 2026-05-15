@@ -146,11 +146,11 @@ describe("Codex adapter", () => {
     const files = buildCodexFileMap(makeSpec(baseProgram()));
 
     expect([...files.keys()]).toEqual([
-      "AGENTS.md",
-      ".codex/config.toml",
       ".agents/skills/release-check/SKILL.md",
       ".codex/agents/reviewer.toml",
+      ".codex/config.toml",
       ".mcp.json",
+      "AGENTS.md",
     ]);
     expect(files.get("AGENTS.md")).toMatchInlineSnapshot(`
       "# Inventory CLI Agent Guide
@@ -279,8 +279,8 @@ describe("Codex adapter", () => {
     })));
 
     expect([...files.keys()]).toEqual([
-      "AGENTS.md",
       ".codex/config.toml",
+      "AGENTS.md",
     ]);
     expect(files.get("AGENTS.md")).toMatchInlineSnapshot(`
       "# Acme Monorepo Agent Guide

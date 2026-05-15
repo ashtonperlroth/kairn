@@ -18,7 +18,8 @@ vi.mock('fs/promises', () => ({
   },
 }));
 
-import { buildFileMap, writeEnvironment } from '../claude-code.js';
+import { InvalidRenderedHarnessPathError } from '../../rendered-harness.js';
+import { buildFileMap, buildRenderedHarness, writeEnvironment } from '../claude-code.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -141,6 +142,54 @@ describe('buildFileMap — placeholder doc filtering', () => {
 
     const files = buildFileMap(spec);
     expect(files.has('.claude/docs/ARCHITECTURE.md')).toBe(true);
+  });
+});
+
+describe('buildRenderedHarness — deterministic contract', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns sorted files with deterministic metadata', () => {
+    const spec = makeSpec({
+      harness: {
+        ...makeSpec().harness,
+        commands: {
+          test: 'Run tests',
+          build: 'Run build',
+        },
+      },
+    });
+
+    const rendered = buildRenderedHarness(spec);
+
+    expect(rendered.metadata).toMatchObject({
+      schemaVersion: 1,
+      target: 'claude-code',
+      source: 'environment-spec',
+    });
+    expect([...rendered.files.keys()]).toEqual([...rendered.files.keys()].sort());
+
+    const command = rendered.files.get('.claude/commands/build.md');
+    expect(command?.metadata).toMatchObject({
+      byteLength: 'Run build'.length,
+      lineCount: 1,
+      source: 'commands',
+    });
+    expect(command?.metadata.sha256).toHaveLength(64);
+  });
+
+  it('rejects command path traversal before writing', () => {
+    const spec = makeSpec({
+      harness: {
+        ...makeSpec().harness,
+        commands: {
+          '../../escape': 'escaped',
+        },
+      },
+    });
+
+    expect(() => buildRenderedHarness(spec)).toThrow(InvalidRenderedHarnessPathError);
   });
 });
 
